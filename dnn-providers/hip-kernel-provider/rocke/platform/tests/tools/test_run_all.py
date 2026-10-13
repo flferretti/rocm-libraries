@@ -28,6 +28,8 @@ def runner(monkeypatch):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.delenv("ROCKE_BACKEND", raising=False)
     monkeypatch.delenv("ROCKE_TEST_ENGINE_ARCHIVE", raising=False)
+    monkeypatch.delenv("ROCKE_ONLINE_LIB", raising=False)
+    monkeypatch.delenv("ROCKE_REPLAY_CLI", raising=False)
     return module
 
 
@@ -47,6 +49,11 @@ def test_runner_passes_registered_fixture_to_both_backends(
     ir_types.touch()
     nontemporal = tmp_path / "Debug" / "rocke_nontemporal_hip"
     nontemporal.touch()
+    shared = tmp_path / "librocke.so"
+    replay = tmp_path / "tests" / "rocke_portable_ir_replay_cli"
+    replay.parent.mkdir(exist_ok=True)
+    shared.touch()
+    replay.touch()
     selected = tmp_path / "override" if override else executable
     if override:
         selected.touch()
@@ -93,6 +100,8 @@ def test_runner_passes_registered_fixture_to_both_backends(
         env["ROCKE_NONTEMPORAL_HIP_TEST"] == str(nontemporal) for _, env in children
     )
     assert all(env["ROCKE_TEST_ENGINE_ARCHIVE"] == str(archive) for _, env in children)
+    assert all(env["ROCKE_ONLINE_LIB"] == str(shared) for _, env in children)
+    assert all(env["ROCKE_REPLAY_CLI"] == str(replay) for _, env in children)
     assert "ROCKE_BACKEND" not in children[0][1]
     assert children[-1][1]["ROCKE_BACKEND"] == "both"
     assert calls[0][0] == [
@@ -192,6 +201,30 @@ def test_explicit_fixture_override_is_resolved_before_pytest_changes_directory(
     assert env["ROCKE_STORAGE_TEST"] == str(executable)
 
 
+def test_pytest_build_configuration_owns_shared_engine(runner, monkeypatch, tmp_path):
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(runner.subprocess, "run", run)
+    runner.configure_pytest_build(tmp_path, "Debug")
+
+    assert calls == [
+        [
+            "cmake",
+            "-S",
+            str(runner.ROCKE),
+            "-B",
+            str(tmp_path),
+            "-DCMAKE_BUILD_TYPE=Debug",
+            "-DROCKE_BUILD_SHARED_ENGINE=ON",
+            "-DBUILD_TESTING=ON",
+        ]
+    ]
+
+
 def test_missing_build_reports_native_coverage_skip(runner, tmp_path, capsys):
     assert "ROCKE_STORAGE_TEST" not in runner.native_pytest_env(tmp_path, "Release")
     assert "native storage parity: SKIPPED" in capsys.readouterr().out
@@ -226,6 +259,35 @@ def test_invalid_engine_archive_override_is_an_error(
     monkeypatch.setenv("ROCKE_TEST_ENGINE_ARCHIVE", str(archive))
     with pytest.raises(ValueError, match="native detector archive does not exist"):
         runner.native_pytest_env(tmp_path, "Release")
+
+
+def test_configured_portable_ir_artifacts_replace_external_cache(
+    runner, monkeypatch, tmp_path
+):
+    shared = tmp_path / "librocke.so"
+    replay = tmp_path / "tests" / "rocke_portable_ir_replay_cli"
+    replay.parent.mkdir()
+    shared.touch()
+    replay.touch()
+    monkeypatch.setenv("ROCKE_ONLINE_LIB", str(tmp_path / "stale.so"))
+    monkeypatch.setenv("ROCKE_REPLAY_CLI", str(tmp_path / "stale-cli"))
+
+    env = runner.native_pytest_env(tmp_path, "Release")
+
+    assert env["ROCKE_ONLINE_LIB"] == str(shared.resolve())
+    assert env["ROCKE_REPLAY_CLI"] == str(replay.resolve())
+
+
+def test_missing_owned_portable_artifacts_clear_external_values(
+    runner, monkeypatch, tmp_path
+):
+    monkeypatch.setenv("ROCKE_ONLINE_LIB", str(tmp_path / "stale.so"))
+    monkeypatch.setenv("ROCKE_REPLAY_CLI", str(tmp_path / "stale-cli"))
+
+    env = runner.native_pytest_env(tmp_path, "Release")
+
+    assert "ROCKE_ONLINE_LIB" not in env
+    assert "ROCKE_REPLAY_CLI" not in env
 
 
 def test_explicit_engine_archive_override_wins(runner, monkeypatch, tmp_path):
