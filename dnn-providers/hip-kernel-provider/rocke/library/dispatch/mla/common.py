@@ -38,6 +38,13 @@ from rocke.dispatch.core import OperatorRequest, selector_matches
 FAMILY = "mla"
 MLA_ABI_VERSION = "hipkg-mla/v1"
 
+#: The one operator this family serves. Prefill and decode are *regimes* of it,
+#: not separate ops: the request states the problem (``max_seqlen_q`` among it)
+#: and the registry picks the kernel, exactly as ``AttentionRequest`` routes its
+#: decode kernels on ``seqlen_q``. Prefill and decode still get distinct
+#: selection keys, because they are distinct candidates.
+MLA_OP = "mla_fwd"
+
 #: Features an MLA candidate may declare. ``causal`` is the bottom-right runtime
 #: mask the prefill kernel implements; a request asking for anything outside this
 #: set is refused by ``Capability`` rather than silently ignored.
@@ -55,6 +62,7 @@ MLA_DIM_VOCABULARY = (
     "kv_lora_rank",
     "page_block_size",
     "total_q",
+    "max_seqlen_q",
     "max_seqlen_k",
     "num_seqs",
 )
@@ -73,11 +81,17 @@ class MLARequest(OperatorRequest):
     ``mla_prefill_fwd`` takes the query already projected by ``W_UQ`` and
     RoPE-rotated (``[total_q, num_heads, d_nope + d_rope]``). Neither step is
     in-tree; the caller applies both, and a pre-kernel for them is a follow-up.
+
+    ``max_seqlen_q`` is what tells decode from prefill, and it cannot be
+    derived from the other two: ``total_q == num_seqs`` also holds for a batch
+    whose sequences carry 0 and 2 queries. A decode batch (``max_seqlen_q ==
+    1``) may still hold sequences with no query, so ``total_q <= num_seqs``.
     """
 
     num_heads: int
     total_q: int
     num_seqs: int
+    max_seqlen_q: int
     max_seqlen_k: int
     arch: str
     d_nope: int = 128
@@ -87,8 +101,9 @@ class MLARequest(OperatorRequest):
     page_block_size: int = 16
     causal: bool = True
     # Device CU count; 0 resolves the live device's when the build box is the
-    # requested arch (see ``dispatch.mla.gfx942._resolve_num_cus``). It only
-    # picks the XCD-aware workgroup order, so a wrong value costs speed.
+    # requested arch (see :func:`resolve_num_cus`). It only picks the
+    # XCD-aware workgroup order and the decode split-KV segment count, so a
+    # wrong value costs speed.
     num_cus: int = 0
     # Blocks in the paged KV pool (``c_kv`` / ``k_rope`` first dimension).
     # Required: the candidate refuses 0 rather than skip the 32-bit paged
@@ -96,7 +111,7 @@ class MLARequest(OperatorRequest):
     # tensors pass ``c_kv.shape[0]``; callers without tensors pass the pool
     # size they would allocate. Negative is malformed.
     num_kv_blocks: int = 0
-    op: str = "mla_prefill_fwd"
+    op: str = MLA_OP
     dtype: str = "bf16"
     algorithm: str = "auto"
     spec_id: str = "auto"
@@ -121,6 +136,7 @@ class MLARequest(OperatorRequest):
             "kv_lora_rank": int(self.kv_lora_rank),
             "page_block_size": int(self.page_block_size),
             "total_q": int(self.total_q),
+            "max_seqlen_q": int(self.max_seqlen_q),
             "max_seqlen_k": int(self.max_seqlen_k),
             "num_seqs": int(self.num_seqs),
         }
@@ -144,6 +160,7 @@ def _request_errors(req: OperatorRequest) -> List[str]:
         "num_heads",
         "total_q",
         "num_seqs",
+        "max_seqlen_q",
         "max_seqlen_k",
         "d_nope",
         "d_rope",
@@ -156,6 +173,20 @@ def _request_errors(req: OperatorRequest) -> List[str]:
             errors.append(f"{name} must be positive, got {value}")
     if int(req.num_kv_blocks) < 0:
         errors.append(f"num_kv_blocks must be >= 0, got {req.num_kv_blocks}")
+    if int(req.max_seqlen_q) > int(req.total_q):
+        errors.append(
+            f"max_seqlen_q={req.max_seqlen_q} cannot exceed total_q={req.total_q}"
+        )
+    if int(req.total_q) > int(req.max_seqlen_q) * int(req.num_seqs):
+        errors.append(
+            f"total_q={req.total_q} exceeds max_seqlen_q={req.max_seqlen_q} x "
+            f"num_seqs={req.num_seqs}"
+        )
+    if str(req.op) != MLA_OP:
+        errors.append(
+            f"op={req.op!r} is not served by the MLA family; it serves {MLA_OP!r} "
+            "and routes prefill vs decode on max_seqlen_q"
+        )
     if not str(req.arch).strip():
         errors.append("arch must be a non-empty architecture name")
     return errors
@@ -180,13 +211,36 @@ def num_q_blocks_for(req: MLARequest, block_q: int) -> int:
     return int(req.total_q) // int(block_q) + int(req.num_seqs)
 
 
+def resolve_num_cus(req: MLARequest) -> int:
+    """Device CU count, or 0 when unknown.
+
+    Taken from ``req.num_cus`` when the caller sets it, else from the live
+    device -- but only when the build box is the requested arch, so a
+    cross-compile never bakes another part's count into the kernel.
+    """
+    n = int(req.num_cus)
+    if n > 0:
+        return n
+    try:
+        from rocke.runtime.hip_module import get_device_arch, get_device_num_cus
+
+        if (get_device_arch() or "").split(":")[0] == req.arch.split(":")[0]:
+            return int(get_device_num_cus() or 0)
+    except (ImportError, OSError, RuntimeError):
+        # No HIP runtime or no device on the build box: the caller decides.
+        pass
+    return 0
+
+
 __all__ = [
     "FAMILY",
     "MLA_ABI_VERSION",
     "MLA_DIM_VOCABULARY",
     "MLA_FEATURES",
+    "MLA_OP",
     "MLARequest",
     "_request_errors",
     "_selector_matches",
     "num_q_blocks_for",
+    "resolve_num_cus",
 ]
