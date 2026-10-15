@@ -265,7 +265,8 @@ class TestGate(unittest.TestCase):
         for req in (
             _req(),
             _req(num_heads=64),
-            _req(total_q=1, num_seqs=1, max_seqlen_q=1),
+            # The smallest prefill batch: one sequence of two queries.
+            _req(total_q=2, num_seqs=1, max_seqlen_q=2),
         ):
             with self.subTest(req=req):
                 if candidate._supports(req)[0]:
@@ -289,11 +290,12 @@ class TestNumSeqsCap(unittest.TestCase):
         )
 
     def test_admits_4095_sequences_and_refuses_4096(self):
+        # max_seqlen_q = 2: one query per sequence is decode's regime.
         candidate = MLA_REGISTRY.get(_NAME)
         self.assertTrue(
-            candidate.admits(_req(total_q=4095, num_seqs=4095, max_seqlen_q=1))[0]
+            candidate.admits(_req(total_q=4095, num_seqs=4095, max_seqlen_q=2))[0]
         )
-        ok, why = candidate.admits(_req(total_q=4096, num_seqs=4096, max_seqlen_q=1))
+        ok, why = candidate.admits(_req(total_q=4096, num_seqs=4096, max_seqlen_q=2))
         self.assertFalse(ok)
         self.assertIn("num_seqs", why)
 
