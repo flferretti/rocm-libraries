@@ -1714,6 +1714,22 @@
           "sha256": "0b397b8339942ebdd73cdb99e4316c2f5abab915c071f5d2621941b77fc6766f",
           "status": "ok"
         },
+        "mma_atom/gfx950/f8f6f4_16x16x128_hero": {
+          "arch": "gfx950",
+          "bytes": 1823,
+          "family": "mma_atom",
+          "kernel_name": "irhash_f8f6f4_16x16x128_hero",
+          "sha256": "989a1b598e6c3348403902c8f9810407149d2841c35d5158c33fcf2ecc6fbae8",
+          "status": "ok"
+        },
+        "mma_atom/gfx950/f8f6f4_16x16x128_mx": {
+          "arch": "gfx950",
+          "bytes": 1825,
+          "family": "mma_atom",
+          "kernel_name": "irhash_f8f6f4_16x16x128_mx",
+          "sha256": "2d1d922e9dd87e138c473f866e6919b36c0cec336b575d0dff4e5d0a61e6b383",
+          "status": "ok"
+        },
         "moe_sort/gfx1151/hist_t32_k2_e8": {
           "arch": "gfx1151",
           "bytes": 3011,
@@ -1806,7 +1822,7 @@
           "gfx1250": 4,
           "gfx90a": 5,
           "gfx942": 42,
-          "gfx950": 151
+          "gfx950": 153
         },
         "expected_failures": 4,
         "families": {
@@ -1828,10 +1844,11 @@
           "gemm": 13,
           "grouped_gemm": 1,
           "kda_chunkwise": 13,
+          "mma_atom": 2,
           "moe": 9,
           "nontemporal": 2
         },
-        "ok_cases": 222
+        "ok_cases": 224
       }
     },
     "llvm22": {
@@ -3548,6 +3565,22 @@
           "sha256": "788425adf2304fc0a9fdffb293c8afff7732a0df85019314e8a0096c8e7ba5d1",
           "status": "ok"
         },
+        "mma_atom/gfx950/f8f6f4_16x16x128_hero": {
+          "arch": "gfx950",
+          "bytes": 1830,
+          "family": "mma_atom",
+          "kernel_name": "irhash_f8f6f4_16x16x128_hero",
+          "sha256": "81c0bab225a727deabb6c61a7820b34fd9cdb624b0bfafa76eb6e04f3184bc97",
+          "status": "ok"
+        },
+        "mma_atom/gfx950/f8f6f4_16x16x128_mx": {
+          "arch": "gfx950",
+          "bytes": 1832,
+          "family": "mma_atom",
+          "kernel_name": "irhash_f8f6f4_16x16x128_mx",
+          "sha256": "347c3c099bc973473c3a38cf521427e1634ba2924beeeb709ac837f4f3a7b95c",
+          "status": "ok"
+        },
         "moe_sort/gfx1151/hist_t32_k2_e8": {
           "arch": "gfx1151",
           "bytes": 3018,
@@ -3640,7 +3673,7 @@
           "gfx1250": 4,
           "gfx90a": 5,
           "gfx942": 42,
-          "gfx950": 151
+          "gfx950": 153
         },
         "expected_failures": 4,
         "families": {
@@ -3662,10 +3695,11 @@
           "gemm": 13,
           "grouped_gemm": 1,
           "kda_chunkwise": 13,
+          "mma_atom": 2,
           "moe": 9,
           "nontemporal": 2
         },
-        "ok_cases": 222
+        "ok_cases": 224
       }
     },
     "llvm23": {
@@ -5414,6 +5448,22 @@
           "sha256": "f7bcbec6aaa73d5eacb821bf69ce6619101535d9135c27ecfd3f13c1105828f8",
           "status": "ok"
         },
+        "mma_atom/gfx950/f8f6f4_16x16x128_hero": {
+          "arch": "gfx950",
+          "bytes": 1894,
+          "family": "mma_atom",
+          "kernel_name": "irhash_f8f6f4_16x16x128_hero",
+          "sha256": "9fbd20fe9f85e2a29d0471661056f9bd6f84b088f050206b0bfa2cb9d7dfcc4a",
+          "status": "ok"
+        },
+        "mma_atom/gfx950/f8f6f4_16x16x128_mx": {
+          "arch": "gfx950",
+          "bytes": 1896,
+          "family": "mma_atom",
+          "kernel_name": "irhash_f8f6f4_16x16x128_mx",
+          "sha256": "01aec45ea8269cf843067e07b63f197330bbbdc0b397e4d816ea42938a374b69",
+          "status": "ok"
+        },
         "moe_sort/gfx1151/hist_t32_k2_e8": {
           "arch": "gfx1151",
           "bytes": 3082,
@@ -5489,7 +5539,7 @@
           "gfx1250": 8,
           "gfx90a": 5,
           "gfx942": 42,
-          "gfx950": 151
+          "gfx950": 153
         },
         "expected_failures": 0,
         "families": {
@@ -5511,10 +5561,11 @@
           "gemm": 17,
           "grouped_gemm": 1,
           "kda_chunkwise": 13,
+          "mma_atom": 2,
           "moe": 9,
           "nontemporal": 2
         },
-        "ok_cases": 226
+        "ok_cases": 228
       }
     }
   },
