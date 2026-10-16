@@ -11,12 +11,12 @@
 
 /**
  * @file cudnn.h
- * @brief Stub C-API header for the hipDNN cuDNN-compatibility shim (v9-only).
+ * @brief Stub C-API header for the hipDNN cuDNN-compatibility shim.
  *
- * Hand-curated, v9-only replacement for NVIDIA's `<cudnn.h>`: declares the few
- * C-API types the cuDNN frontend v9 graph API names in its signatures, plus the
- * C entry points for handle init, stream binding, error handling, and version
- * checks. Everything forwards to an existing hipDNN equivalent.
+ * Hand-curated replacement for NVIDIA's `<cudnn.h>`: declares the C entry
+ * points for handle init, stream binding, error handling, and version checks,
+ * and pulls in the backend descriptor C API from `cudnn_graph.h`. Everything
+ * forwards to an existing hipDNN equivalent.
  *
  * @note Forwarding goes through `hipdnn_frontend::detail::hipdnnBackend()` — the
  *       same mockable indirection `Handle.hpp` uses — so these entry points are
@@ -28,9 +28,9 @@
 #include <cstddef>
 #include <memory>
 #include <string>
-#include <type_traits>
 
 #include <hipdnn_compatibility/cudnn/cudnn_frontend_version.h>
+#include <hipdnn_compatibility/cudnn/cudnn_graph.h>
 #include <hipdnn_compatibility/cudnn/cudnn_runtime_version.h>
 #include <hipdnn_compatibility/cudnn/cudnn_status.h>
 #include <hipdnn_compatibility/cudnn/detail/logging_bridge.h>
@@ -41,15 +41,6 @@
 // C-API types
 // ===========================================================================
 
-/// @brief cuDNN handle, aliased directly to the hipDNN handle type.
-///
-/// `hipdnnHandle_t` is the global C typedef from `<hipdnn_backend.h>`, not a
-/// member of namespace `hipdnn_frontend`.
-using cudnnHandle_t = ::hipdnnHandle_t;
-
-static_assert(std::is_same_v<cudnnHandle_t, ::hipdnnHandle_t>,
-              "cudnnHandle_t must alias the hipDNN handle type");
-
 /// @brief Opaque CUDA-graph handle placeholder for compile-only error stubs.
 ///
 /// The cuDNN-shim graph-capture methods are unsupported at runtime; this alias
@@ -57,10 +48,8 @@ static_assert(std::is_same_v<cudnnHandle_t, ::hipdnnHandle_t>,
 /// runtime headers into the shim umbrella.
 using cudaGraph_t = void*;
 
-// Only the C-API types the v9 graph API actually references are declared here
-// (cudnnHandle_t, plus cudnnStatus_t from cudnn_status.h). Other cuDNN C-API
-// enums are intentionally omitted: the v9 graph surface uses the FE-namespace
-// enums (DataType_t, …) aliased in cudnn_frontend_utils.h, not the C-API ones.
+// cudnnHandle_t and the backend C-API types live in detail/backend/c_types.h;
+// the backend descriptor entry points live in cudnn_graph.h.
 
 // Status translation. Included after cudnnStatus_t above and before the entry
 // points below, which use it.

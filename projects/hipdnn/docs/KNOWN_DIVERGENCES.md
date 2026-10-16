@@ -1,9 +1,8 @@
 # Known divergences: cuDNN frontend compatibility shim
 
 This document describes intentional behavioral differences between NVIDIA cuDNN
-frontend v9 and hipDNN's cuDNN-shaped compatibility shim. The shim is source
-compatibility for supported v9 graph-API translation units, not ABI compatibility
-and not a full cuDNN backend implementation.
+frontend and hipDNN's cuDNN-shaped compatibility shim. The shim is source
+compatibility, not ABI compatibility and not a full cuDNN backend implementation.
 
 NVIDIA, CUDA, and cuDNN are trademarks and/or registered trademarks of NVIDIA
 Corporation. hipDNN is not affiliated with or endorsed by NVIDIA.
@@ -11,8 +10,10 @@ Corporation. hipDNN is not affiliated with or endorsed by NVIDIA.
 ## Scope
 
 The shim targets the cuDNN frontend v9 graph API surface exposed by
-`<hipdnn_compatibility/cudnn/cudnn_frontend.h>`. The v0.x / v8 builder and backend
-descriptor API surface is out of scope.
+`<hipdnn_compatibility/cudnn/cudnn_frontend.h>`, and the v0.x / v8 builder API with the
+cuDNN backend descriptor C API described in
+[RFC 0021](rfcs/0021_CuDNN_V8_Shim.md). The v8 surface is being added in phases; the
+[v8 backend C API](#v8-backend-c-api) section lists its divergences.
 
 ## hipDNN extensions
 
@@ -216,3 +217,25 @@ handle:
 The bridge is effective only if it runs before hipDNN backend logging initializes.
 The `CUDNN_FE_LOG*` macros forward to hipDNN frontend logging macros; they do not
 own a separate cuDNN frontend stream logger.
+
+## v8 backend C API
+
+### Enum values
+
+The C enums in `cudnn_graph.h` (`cudnnBackendAttributeName_t`, `cudnnDataType_t`,
+`cudnnPointwiseMode_t`, …) have the cuDNN names but the shim's own values: numbered from
+0 in alphabetical order of the enumerator name, with each `*_COUNT` one past the last
+value. Values are append-only within a `hipdnn_frontend` major version.
+`cudnnBackendTensorReordering_t` follows the order of the shim's `TensorReordering_t`.
+
+Impact: source compatibility only. Code that stores raw cuDNN enum values produced by
+real cuDNN, or compares against hard-coded numbers, sees different values.
+
+### Last-error string
+
+`cudnnGetLastErrorString` returns the most recent shim error on the calling thread, falling back to
+hipDNN's last error when the shim has none. The buffer lives in the shim's header-only code, so each
+DLL (Windows) or shared object (Linux) that includes the shim has its own copy.
+
+Impact: an error raised by shim code in one module is not visible to `cudnnGetLastErrorString`
+called from another module.
