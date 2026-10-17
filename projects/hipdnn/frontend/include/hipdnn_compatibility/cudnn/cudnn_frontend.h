@@ -16,7 +16,8 @@
  *
  * Scope: the cuDNN frontend v9 graph API plus the v0.x / v8 descriptor
  * builders (tensor, convolution, pointwise, matmul, reduction, resample, RNG,
- * variant pack). Must remain includable standalone with no extra defines.
+ * operation, operation graph, variant pack). Must remain includable standalone
+ * with no extra defines.
  */
 
 #pragma once
@@ -26,14 +27,13 @@
 #include <hipdnn_compatibility/cudnn/cudnn_frontend_ConvDesc.h>
 #include <hipdnn_compatibility/cudnn/cudnn_frontend_Logging.h>
 #include <hipdnn_compatibility/cudnn/cudnn_frontend_MatMulDesc.h>
+#include <hipdnn_compatibility/cudnn/cudnn_frontend_Operation.h>
+#include <hipdnn_compatibility/cudnn/cudnn_frontend_OperationGraph.h>
 #include <hipdnn_compatibility/cudnn/cudnn_frontend_PointWiseDesc.h>
 #include <hipdnn_compatibility/cudnn/cudnn_frontend_Resample.h>
 #include <hipdnn_compatibility/cudnn/cudnn_frontend_Tensor.h>
 #include <hipdnn_compatibility/cudnn/cudnn_frontend_VariantPack.h>
 #include <hipdnn_compatibility/cudnn/cudnn_frontend_utils.h>
-// Upstream reaches these through cudnn_frontend_Operation.h.
-#include <hipdnn_compatibility/cudnn/cudnn_frontend_ReductionDesc.h>
-#include <hipdnn_compatibility/cudnn/cudnn_frontend_Rng.h>
 
 #include <hipdnn_compatibility/cudnn/cudnn_frontend/graph_helpers.h>
 #include <hipdnn_compatibility/cudnn/cudnn_frontend/graph_interface.h>
