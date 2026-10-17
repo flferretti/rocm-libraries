@@ -22,6 +22,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace rocblaslt
@@ -90,7 +91,7 @@ namespace rocblaslt
         struct Config
         {
             bool     enabled     = false; // HIPBLASLT_ADAPTIVE_SM_COUNT=1, or _FORCE set
-            uint32_t log         = 0; // _LOG: 1 config, hint changes; 2 + readings
+            uint32_t log         = 0; // _LOG: 1 config, hint changes, re-selections; 2 + readings
             uint32_t force       = 0; // _FORCE: fixed hint for query and launch
             bool     forceProbe  = false; // _FORCE_PROBE: probe under _FORCE, readings discarded
             uint32_t probeEvery  = 8; // _PROBE_EVERY: launches between probes
@@ -156,9 +157,12 @@ namespace rocblaslt
         constexpr uint32_t c_probeSlots = 512;
         // Missed probe opportunities in a row before the hint drops to 0.
         constexpr uint32_t c_resetMisses = 2;
+        // Candidates examined by launch-time re-selection.
+        constexpr int c_reselectTopK = 8;
         // Least workspace reported for the top heuristic result in adaptive
         // mode, capped by the caller's limit: origami's static-grid
-        // partial-tile limit, enough for SK5 re-grids under any hint.
+        // partial-tile limit, enough for SK5 re-grids and re-selections under
+        // any hint.
         constexpr size_t c_adaptiveWorkspace = size_t(128) << 20;
 
         // The adaptive hint applies in StreamK AUTO or ON mode when neither the
@@ -301,6 +305,29 @@ namespace rocblaslt
             if(hi < from || lo > from)
                 return lo;
             return hint;
+        }
+
+        // Heuristic-query tag in rocblaslt_matmul_algo::data[4..7] (data[0..3] is
+        // the solution index): data[4] bit 0 = eligible for launch-time
+        // re-selection, data[5] = tag version, data[6..7] = hint at query.
+        constexpr uint8_t c_algoTagVersion = 1;
+
+        inline void tagAlgo(uint8_t* data, uint32_t queryHint)
+        {
+            const uint16_t h = static_cast<uint16_t>(std::min<uint32_t>(queryHint, 0xffff));
+            data[4] |= 1;
+            data[5] = c_algoTagVersion;
+            std::memcpy(data + 6, &h, sizeof(h));
+        }
+
+        inline bool algoTag(const uint8_t* data, uint32_t* queryHint)
+        {
+            if(!(data[4] & 1) || data[5] != c_algoTagVersion)
+                return false;
+            uint16_t h;
+            std::memcpy(&h, data + 6, sizeof(h));
+            *queryHint = h;
+            return true;
         }
 
         // One stream's adaptive state: probe ticks and epochs, the probe
