@@ -16,8 +16,11 @@
  *
  * Scope: the cuDNN frontend v9 graph API plus the v0.x / v8 descriptor
  * builders (tensor, convolution, pointwise, matmul, reduction, resample, RNG,
- * operation, operation graph, variant pack). Must remain includable standalone
- * with no extra defines.
+ * operation, operation graph, variant pack), heuristics, engines, engine
+ * configs, fallback lists, filters, execution plans, errata and the plan
+ * cache. Must remain includable standalone with no extra defines.
+ * `cudnn_frontend_EngineConfigGenerator.h`, `cudnn_frontend_get_plan.h` and
+ * `cudnn_frontend_find_plan.h` stay outside the umbrella, as upstream.
  */
 
 #pragma once
@@ -25,11 +28,20 @@
 #include <hipdnn_compatibility/cudnn/cudnn.h>
 
 #include <hipdnn_compatibility/cudnn/cudnn_frontend_ConvDesc.h>
+#include <hipdnn_compatibility/cudnn/cudnn_frontend_Engine.h>
+#include <hipdnn_compatibility/cudnn/cudnn_frontend_EngineConfig.h>
+#include <hipdnn_compatibility/cudnn/cudnn_frontend_EngineFallbackList.h>
+#include <hipdnn_compatibility/cudnn/cudnn_frontend_Errata.h>
+#include <hipdnn_compatibility/cudnn/cudnn_frontend_ExecutionPlan.h>
+#include <hipdnn_compatibility/cudnn/cudnn_frontend_ExecutionPlanCache.h>
+#include <hipdnn_compatibility/cudnn/cudnn_frontend_Filters.h>
+#include <hipdnn_compatibility/cudnn/cudnn_frontend_Heuristics.h>
 #include <hipdnn_compatibility/cudnn/cudnn_frontend_Logging.h>
 #include <hipdnn_compatibility/cudnn/cudnn_frontend_MatMulDesc.h>
 #include <hipdnn_compatibility/cudnn/cudnn_frontend_Operation.h>
 #include <hipdnn_compatibility/cudnn/cudnn_frontend_OperationGraph.h>
 #include <hipdnn_compatibility/cudnn/cudnn_frontend_PointWiseDesc.h>
+#include <hipdnn_compatibility/cudnn/cudnn_frontend_Reorder_Tensor.h>
 #include <hipdnn_compatibility/cudnn/cudnn_frontend_Resample.h>
 #include <hipdnn_compatibility/cudnn/cudnn_frontend_Tensor.h>
 #include <hipdnn_compatibility/cudnn/cudnn_frontend_VariantPack.h>
@@ -47,6 +59,14 @@ using ConvDesc = ConvDesc_v8;
 using ConvDescBuilder = ConvDescBuilder_v8;
 using ReductionDesc = ReductionDesc_v8;
 using ReductionDescBuilder = ReductionDescBuilder_v8;
+using EngineHeuristicsBuilder = EngineHeuristicsBuilder_v8;
+using EngineHeuristics = EngineHeuristics_v8;
+using EngineBuilder = EngineBuilder_v8;
+using Engine = Engine_v8;
+using EngineConfig = EngineConfig_v8;
+using EngineConfigBuilder = EngineConfigBuilder_v8;
+using EngineFallbackList = EngineFallbackList_v8;
+using EngineFallbackListBuilder = EngineFallbackListBuilder_v8;
 using ResampleDesc = ResampleDesc_v8;
 using ResampleDescBuilder = ResampleDescBuilder_v8;
 // NOLINTEND(readability-identifier-naming)
