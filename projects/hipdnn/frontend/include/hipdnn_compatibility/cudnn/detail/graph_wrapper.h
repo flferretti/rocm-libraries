@@ -1835,13 +1835,7 @@ private:
     {
         for(const auto mode : modes)
         {
-            if(mode != HeurMode_t::FALLBACK)
-            {
-                HIPDNN_FE_LOG_WARN("[cudnn_frontend] cuDNN heuristic mode "
-                                   << hipdnn_frontend::to_string(mode)
-                                   << " is accepted but not honored; hipDNN uses fallback "
-                                      "selection. Plan choice may differ from cuDNN.");
-            }
+            cudnn_frontend::detail::warnUnhonoredHeuristicMode(mode);
         }
     }
 
