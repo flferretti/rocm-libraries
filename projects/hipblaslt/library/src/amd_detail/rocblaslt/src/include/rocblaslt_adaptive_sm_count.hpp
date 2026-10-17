@@ -156,6 +156,10 @@ namespace rocblaslt
         constexpr uint32_t c_probeSlots = 512;
         // Missed probe opportunities in a row before the hint drops to 0.
         constexpr uint32_t c_resetMisses = 2;
+        // Least workspace reported for the top heuristic result in adaptive
+        // mode, capped by the caller's limit: origami's static-grid
+        // partial-tile limit, enough for SK5 re-grids under any hint.
+        constexpr size_t c_adaptiveWorkspace = size_t(128) << 20;
 
         // The adaptive hint applies in StreamK AUTO or ON mode when neither the
         // desc nor the handle sets an explicit sm_count_target.
@@ -461,6 +465,26 @@ namespace rocblaslt
             bool          m_due        = false;
             bool          m_pending    = false; // probe m_epoch.epoch is unread
             bool          m_tick       = false; // the last launch was a tick
+        };
+
+        // Snapshot of one stream's state, for tests.
+        struct StreamStateForTest
+        {
+            uint32_t published; // published hint, 0: none
+            uint32_t epoch; // last probe epoch
+            bool     pending; // a recorded probe is unread
+            uint32_t missed;
+            uint32_t sinceTick;
+            bool     due;
+            uint32_t probesRead;
+            uint32_t lastCount;
+
+            bool operator==(const StreamStateForTest& o) const
+            {
+                return published == o.published && epoch == o.epoch && pending == o.pending
+                       && missed == o.missed && sinceTick == o.sinceTick && due == o.due
+                       && probesRead == o.probesRead && lastCount == o.lastCount;
+            }
         };
     } // namespace adaptive_sm
 } // namespace rocblaslt
