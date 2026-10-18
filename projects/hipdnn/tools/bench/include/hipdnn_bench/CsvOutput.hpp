@@ -66,13 +66,14 @@ inline std::vector<std::pair<std::string, std::string>>
 }
 
 /// The CSV header: the problem and its graph's content key, the device and problem columns
-/// (named in full), the `--query` parameters (`q.*`), the knobs (`kernel.*`), then the row's
-/// outcome. Timing
+/// (named in full), the `--query` parameters (`q.*`), the knobs (`kernel.*`), the
+/// `slotColumns` of a slotted engine (none otherwise), then the row's outcome. Timing
 /// names follow RFC 0019.13 §8.3 (camelCase); `numerically_valid` is three-valued text,
 /// kept apart from `is_valid` (RFC 0019 §13.2).
 inline std::string csvHeader(const std::vector<std::string>& featureColumns,
                              const std::vector<std::string>& queryNames,
-                             const std::vector<std::string>& knobNames)
+                             const std::vector<std::string>& knobNames,
+                             const std::vector<std::string>& slotColumns = {})
 {
     std::string header = "problem,benchmark";
     for(const auto& column : featureColumns)
@@ -86,6 +87,10 @@ inline std::string csvHeader(const std::vector<std::string>& featureColumns,
     for(const auto& knob : knobNames)
     {
         header += "," + csvField("kernel." + knob);
+    }
+    for(const auto& column : slotColumns)
+    {
+        header += "," + column;
     }
     return header
            + ",engine,rank,succeeded,is_valid,numerically_valid,validation,skip_reason,"
