@@ -348,6 +348,7 @@ def test_alpha_zero_nonowner_consumes_arrive_before_skipping_compute(monkeypatch
     module = processing.finishStaticTile(writer, kernel, {}, {}, scratch)
     machine = Machine(NumWorkGroups0=2, NumWorkGroups1=2, Alpha=alpha,
                       StreamKLocalStart=local_start, StreamKLocalEnd=3, ItersPerTile=5)
+    machine.registers[str(sgpr("AddressFlags", 2))] = 1  # tree reduction
     result = machine.run(module)
     assert machine.barriers == expected_waits
     assert (result == "label_PersistentLoopClose") == bool(expected_waits)
@@ -395,3 +396,66 @@ def test_n_only_streamk_cluster_is_rejected_during_solution_derivation(tmp_path)
     path = tmp_path / "n_only_cluster.yaml"
     path.write_text(yaml.safe_dump(config))
     assert derive_states(str(path), arch="gfx1250", limit_solutions=1) == []
+
+
+@pytest.mark.parametrize("shape", _SPATIAL_SHAPES)
+@pytest.mark.parametrize("tiles_m,tiles_n,batches,iters,factor", [
+    (2, 4, 1, 256, 32), (5, 3, 2, 65, 7), (1, 1, 3, 17, 3),
+])
+@pytest.mark.parametrize("alpha", [0, 1])
+def test_parallel_cluster_ranges_and_split_major_stores(monkeypatch, shape, tiles_m,
+                                                        tiles_n, batches, iters, factor, alpha):
+    kernel, processing, assignment, writer = _setup(monkeypatch, shape)
+    cs, cn = shape
+    blocks_m = (tiles_m + cs - 1) // cs
+    blocks_n = (tiles_n + cn - 1) // cn
+    blocks = blocks_m * blocks_n * batches
+    initialize = assignment.initialize(writer, kernel, processing)
+    activate = assignment.activateReservedOrAcquire(writer, kernel, processing, {}, {})
+    close = assignment.closeLoop(writer, kernel)
+    skip = processing.skipPhantomTileStore(writer, kernel)
+    coverage, stores = Counter(), Counter()
+    intervals = {}
+    for worker in range(blocks * factor):
+        block, split = divmod(worker, factor)
+        for peer in range(cs * cn):
+            machine = Machine(WorkGroup0=worker * cs + peer % cs, WorkGroup1=peer // cs,
+                              NumWorkGroups0=tiles_m, NumWorkGroups1=tiles_n,
+                              ItersPerTile=iters, SKItersPerWG=iters // factor,
+                              skGrid=blocks * factor, skTiles=factor, SkSplit=factor, Alpha=alpha)
+            machine["SizesFree+2"] = batches
+            # The assembler aliases SkSplit to skTiles; model it explicitly.
+            machine.registers[str(sgpr("AddressFlags", 2))] = 0
+            shift = iters.bit_length() - 1
+            machine["MagicNumberItersPerTile"] = ((1 << (32 + shift)) + iters - 1) // iters
+            if iters & (iters - 1) == 0:
+                machine["MagicNumberItersPerTile"] = 0x80000000
+                shift -= 1
+            machine["MagicShiftItersPerTile"] = shift
+            assert machine.run(initialize) is None
+            assert machine["SkPartialIdx"] == split
+            assert machine.run(activate) is None, "alpha-zero must initialize every partial"
+            start, end = machine["StreamKLocalStart"], machine["StreamKLocalEnd"]
+            expected_start = split * (iters // factor) + min(split, iters % factor)
+            expected_end = expected_start + iters // factor + (split < iters % factor)
+            assert (start, end) == (expected_start, expected_end)
+            if peer:
+                assert (start, end) == intervals[worker]
+            intervals[worker] = (start, end)
+            batch, rem = divmod(block, blocks_m * blocks_n)
+            bn, bm = divmod(rem, blocks_m)
+            m, n = bm * cs + peer % cs, bn * cn + peer // cs
+            phantom = m >= tiles_m or n >= tiles_n
+            assert (machine.run(skip) == "label_PersistentLoopClose") == phantom
+            if not phantom:
+                assert (machine["WorkGroup0"], machine["WorkGroup1"], machine["WorkGroup2"]) == (m, n, batch)
+                # Independent converter view: one partial for each real tile in
+                # each split, no phantom stores or mixing between peers/batches.
+                stores[split, batch, m, n] += 1
+                for k in range(start, end):
+                    coverage[batch, m, n, k] += 1
+            assert machine.run(close) is None, "parallel worker must finish after one interval"
+    assert coverage == Counter({(b, m, n, k): 1 for b in range(batches) for m in range(tiles_m)
+                                for n in range(tiles_n) for k in range(iters)})
+    assert stores == Counter({(s, b, m, n): 1 for s in range(factor) for b in range(batches)
+                              for m in range(tiles_m) for n in range(tiles_n)})

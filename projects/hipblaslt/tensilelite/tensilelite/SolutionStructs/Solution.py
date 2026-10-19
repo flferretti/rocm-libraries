@@ -2324,6 +2324,13 @@ class Solution(collections.abc.Mapping):
     # solution YAML said, because only the generator knows what it just emitted.
     state["InternalSupportParams"]["SupportStreamKPerTileExtraIters"] = \
         (_supportStreamKPerTileExtraIters(state) and not isStreamKSpatialCluster(state))
+    # Sparse, subtile and gradient variants retain tree fixup.
+    state["InternalSupportParams"]["SupportStreamKClusterParallel"] = (
+        isStreamKSpatialCluster(state)
+        and not state["ProblemType"]["Sparse"]
+        and not state["ProblemType"]["Gradient"]
+        and not state.get("UseSubtileImpl", False)
+    )
 
     if isPersistent(state):
       #state["AssertSummationElementMultiple"] = 1 # Cannot keep ASEM with Stream-K

@@ -927,6 +927,7 @@ class InternalArgsSupport:
                  'wgm',
                  'staggerU',
                  'perTileExtraIters',
+                 'streamKClusterParallel',
                  'useUniversalArgs',
                  'useSFC'
                  ]
@@ -943,6 +944,7 @@ class InternalArgsSupport:
                    wgm = isp['SupportCustomWGM'],
                    staggerU = isp['SupportCustomStaggerU'],
                    perTileExtraIters = isp.get('SupportStreamKPerTileExtraIters', False),
+                   streamKClusterParallel = isp.get('SupportStreamKClusterParallel', False),
                    useUniversalArgs = isp['UseUniversalArgs'],
                    useSFC = useSFC)
 
