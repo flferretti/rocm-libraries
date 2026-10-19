@@ -143,17 +143,31 @@ def test_gfx11_gfx12_hip_source_compiles_with_the_target_word(arch):
     assert [int(w) for w in words] == [_GFX10_PLUS_WORD] * 2, device_ir
 
 
-def test_hip_route_copy_is_bounds_checked_on_gfx9():
-    """A copy through the HIP route on a gfx9 GPU: lanes inside both bounds
-    copy S, lanes past the load bound read 0, and lanes past the store bound
-    leave D untouched. A descriptor word that disables buffer access (for
-    example 0) leaves all of D untouched and fails the check."""
-    from rocke.helpers.compile import compile_kernel_via_hipcc
-    from rocke.runtime.hip_module import Runtime, get_device_arch
+def _lowering_target(device_arch):
+    """The target to lower for on a ``device_arch`` GPU: the arch itself when
+    it has an ISA backend, otherwise its family's generic target (a gfx1100
+    runs gfx11-generic code); None when neither has one."""
+    if device_arch in _WORD_BY_ARCH:
+        return device_arch
+    generic = f"{device_arch[:5]}-generic"
+    return generic if generic in _WORD_BY_ARCH else None
 
-    arch = get_device_arch(0)
-    if arch not in ("gfx90a", "gfx942", "gfx950"):
-        pytest.skip(f"requires a gfx90a, gfx942 or gfx950 device; detected {arch}")
+
+def test_hip_route_copy_is_bounds_checked_on_the_gpu():
+    """A copy through the HIP route on the current GPU: lanes inside both
+    bounds copy S, lanes past the load bound read 0, and lanes past the store
+    bound leave D untouched. A descriptor word that disables buffer access on
+    the target (the gfx9 word on gfx11 and gfx12, for example) leaves all of D
+    untouched and fails the check."""
+    from rocke.helpers.compile import compile_kernel_via_hipcc
+    from rocke.runtime.hip_module import Runtime
+    from rocke.tests.gpu import current_device_arch
+
+    # The Runtime launches on the current device, so compile for that one.
+    device_arch = current_device_arch()
+    arch = _lowering_target(device_arch)
+    if arch is None:
+        pytest.skip(f"no ISA backend for the device's {device_arch}")
     _require_hipcc()
 
     load_lanes, store_lanes = 40, 56
