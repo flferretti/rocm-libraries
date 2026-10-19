@@ -1795,7 +1795,7 @@ class IRBuilder:
     def zero_vec(self, elem: Type, n: int) -> Value:
         if elem == F32:
             return self.zero_vec_f32(n)
-        if elem in (F16, BF16, FP8E4M3, BF8E5M2, I8, I32):
+        if elem in (F64, F16, BF16, FP8E4M3, BF8E5M2, I8, I32):
             return self._op(
                 "arith.constant_vec",
                 result_types=[VectorType(elem, n)],

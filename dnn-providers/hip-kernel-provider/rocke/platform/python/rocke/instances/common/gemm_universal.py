@@ -31,7 +31,8 @@ wave64).
 What this file implements *now*:
   - tile geometries 64..256 x 64..256 x 16..128
   - warp grids 1x1, 2x1, 1x2, 2x2, 4x1, 1x4, 2x4, 4x2, 4x4
-  - MFMA atoms 16x16x16, 16x16x32, 32x32x8, 32x32x16 f16
+  - MFMA atoms 16x16x16, 16x16x32, 32x32x8, 32x32x16 f16; 16x16x4 fp64
+    (gfx942, fp64 accumulation)
   - pipeline `mem` (single buffer, sync), `compv3` (single buffer +
     scheduler hints), `compv4` (double-buffer LDS + sched_group_barrier
     interleave between MFMA/DS_read/DS_write/VMEM)
@@ -55,15 +56,18 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Iterator, List, Literal, Optional, Sequence, Tuple
 
+from ...core.dtypes import dtype_info
 from ...core.ir import (
     BF16,
     F16,
+    F64,
     I32,
     IRBuilder,
     KernelDef,
     PtrType,
     Type,
     Value,
+    dtype_to_ir_type,
 )
 from ...helpers.io import io_ir_type
 from ...helpers.spec import WarpTileBlockSizeMixin, choose_load_vec
@@ -349,9 +353,21 @@ def _dtype_ir(name: str) -> Type:
     """Resolve GEMM storage dtype strings to IR types.
 
     Universal GEMM currently supports homogeneous A/B/C storage dtypes
-    for f16 and bf16 with f32 accumulation.
+    for f16 and bf16 with f32 accumulation, and fp64 with fp64 accumulation.
     """
+    if name == "fp64":
+        return F64
     return io_ir_type(name)
+
+
+def _acc_dtype(spec: UniversalGemmSpec) -> str:
+    """Catalog accumulator dtype for ``spec`` (validated in :func:`_storage_dtype`)."""
+    return "fp64" if spec.data.dtype_a == "fp64" else "fp32"
+
+
+def _elem_bytes(spec: UniversalGemmSpec) -> int:
+    """Storage element size in bytes of the homogeneous A/B/C dtype."""
+    return dtype_info(spec.data.dtype_a).encoded_bits // 8
 
 
 def _mma_family(arch: str) -> str:
@@ -386,7 +402,7 @@ def _resolve_mma_op(spec: "UniversalGemmSpec", arch: str):
         family=_mma_family(arch),
         a_dtype=a_name,
         b_dtype=a_name,
-        c_dtype="fp32",
+        c_dtype=_acc_dtype(spec),
         m=t.warp_tile_m,
         n=t.warp_tile_n,
         k=t.warp_tile_k,
@@ -400,7 +416,13 @@ def _storage_dtype(spec: UniversalGemmSpec) -> Type:
             "UniversalGemmSpec currently requires homogeneous A/B/C dtypes; "
             f"got A={d.dtype_a}, B={d.dtype_b}, C={d.dtype_c}"
         )
-    if d.dtype_acc not in ("fp32", "f32"):
+    if d.dtype_a == "fp64":
+        if d.dtype_acc not in ("fp64", "f64"):
+            raise ValueError(
+                "UniversalGemmSpec only supports fp64 accumulation for fp64, "
+                f"got {d.dtype_acc!r}"
+            )
+    elif d.dtype_acc not in ("fp32", "f32"):
         raise ValueError(
             f"UniversalGemmSpec only supports fp32 accumulation, got {d.dtype_acc!r}"
         )
@@ -417,7 +439,7 @@ def _ab_lds_plan(spec: UniversalGemmSpec, arch: str) -> Tuple[int, bool, bool]:
     Returns ``(ab_single, db, two_buf)`` as pure Python ints/bools:
 
     * ``ab_single`` — bytes for one (single-buffered) AB LDS region,
-      ``(tile_m*tile_k + tile_n*tile_k) * 2``.
+      ``(tile_m*tile_k + tile_n*tile_k) * elem_bytes``.
     * ``db`` — whether the compv4 software-pipelined double buffer is
       enabled (compv4, direct epilogue, not DTL, and the doubled buffer
       still fits 2 WG/CU).
@@ -431,7 +453,7 @@ def _ab_lds_plan(spec: UniversalGemmSpec, arch: str) -> Tuple[int, bool, bool]:
     from ...core.arch import ArchTarget
 
     t = spec.tile
-    ab_single = ((t.tile_m * t.tile_k) + (t.tile_n * t.tile_k)) * 2
+    ab_single = ((t.tile_m * t.tile_k) + (t.tile_n * t.tile_k)) * _elem_bytes(spec)
     lds_cap = ArchTarget.from_gfx(arch).lds_capacity_bytes
     db_fits_2wg = (2 * ab_single) * 2 <= lds_cap
     db = (
@@ -473,14 +495,15 @@ def is_valid_spec(spec: UniversalGemmSpec, arch: str = "gfx950") -> Tuple[bool, 
     # resolves to an MFMA op_id on gfx942/gfx950 and a WMMA op_id on gfx1151.
     family = _mma_family(arch)
     a_name = spec.data.dtype_a  # homogeneous A/B/C (checked above)
+    acc_name = _acc_dtype(spec)
     atom = (t.warp_tile_m, t.warp_tile_n, t.warp_tile_k)
-    if not target.supports_dtype_combo(a_name, a_name, "fp32", family=family):
+    if not target.supports_dtype_combo(a_name, a_name, acc_name, family=family):
         return False, f"unsupported GEMM dtype {a_name!r} on {arch}"
     if not target.mma.has_shape(
         family=family,
         a_dtype=a_name,
         b_dtype=a_name,
-        c_dtype="fp32",
+        c_dtype=acc_name,
         m=t.warp_tile_m,
         n=t.warp_tile_n,
         k=t.warp_tile_k,
@@ -532,6 +555,30 @@ def is_valid_spec(spec: UniversalGemmSpec, arch: str = "gfx950") -> Tuple[bool, 
             if flag:
                 return False, f"WMMA path does not support {label} on {arch}"
 
+    # fp64 is limited to the 16x16x4 MFMA atom, the mem / compv3 / compv4
+    # pipelines, the VGPR-staged load path and the matmul-only default /
+    # cshuffle epilogues.
+    if a_name == "fp64":
+        if atom != (16, 16, 4):
+            return False, (
+                f"fp64 GEMM supports only warp_tile (16, 16, 4) (got {atom}) on {arch}"
+            )
+        if spec.trait.pipeline not in ("mem", "compv3", "compv4"):
+            return False, (
+                "fp64 GEMM supports only the 'mem', 'compv3' and 'compv4' pipelines "
+                f"(got {spec.trait.pipeline!r}) on {arch}"
+            )
+        for flag, label in (
+            (spec.trait.direct_to_lds, "direct_to_lds"),
+            (spec.trait.dtl_prefetch, "dtl_prefetch"),
+            (spec.trait.lds_swizzle, "lds_swizzle"),
+            (spec.trait.preshuffle_b, "preshuffle_b"),
+            (spec.trait.split_k > 1, "split_k > 1"),
+            (getattr(spec, "_fused_epilogue", None) is not None, "fused epilogues"),
+        ):
+            if flag:
+                return False, f"fp64 GEMM does not support {label} on {arch}"
+
     # DirectToLDS: the emitter bakes a fixed per-lane chunk width into the
     # kernel at build time (see build_universal_gemm), capped at the arch's
     # own buffer_load_lds width (ArchTarget.async_lds_max_dwords). Asking for
@@ -568,9 +615,9 @@ def is_valid_spec(spec: UniversalGemmSpec, arch: str = "gfx950") -> Tuple[bool, 
     # gfx950 / CDNA4, 64 KiB on gfx942 / CDNA3). Our current emitter does
     # NOT alias AB and cshuffle staging (CK does; a separate optimisation
     # we have not yet wired up), so the actual usage is additive:
-    #   compv4 single AB:   tile_m*tile_k*2 + tile_n*tile_k*2
+    #   compv4 single AB:   (tile_m*tile_k + tile_n*tile_k) * elem_bytes
     #   compv4 double AB:   2 * single AB
-    #   cshuffle staging:   tile_m*tile_n*2   (f16)
+    #   cshuffle staging:   tile_m*tile_n*elem_bytes
     #   total:              double_buffer_AB + (cshuffle ? C : 0)
     # When we land the AB/C aliasing in the cshuffle emitter, swap the
     # `+` for a `max`.
@@ -585,7 +632,11 @@ def is_valid_spec(spec: UniversalGemmSpec, arch: str = "gfx950") -> Tuple[bool, 
     # sites share :func:`_ab_lds_plan` to stay in lock-step.
     ab_single, _, _ab_dbl = _ab_lds_plan(spec, arch)
     ab_bytes = ab_single * (2 if _ab_dbl else 1)
-    c_bytes = t.tile_m * t.tile_n * 2 if spec.trait.epilogue == "cshuffle" else 0
+    c_bytes = (
+        t.tile_m * t.tile_n * _elem_bytes(spec)
+        if spec.trait.epilogue == "cshuffle"
+        else 0
+    )
     bytes_lds = ab_bytes + c_bytes
     if not target.fits_lds(bytes_lds):
         return False, (
@@ -708,27 +759,32 @@ def _emit_mma(b: IRBuilder, op, a: Value, bb: Value, c: Value) -> Value:
 
 
 def _emit_zero_acc_op(b: IRBuilder, op) -> Value:
-    """Zero accumulator vector sized from the resolved op's ``c_frag_len``."""
-    return b.zero_vec_f32(op.c_frag_len)
+    """Zero accumulator vector sized from the resolved op's ``c_frag_len`` and
+    typed from its ``c_dtype``."""
+    return b.zero_vec(dtype_to_ir_type(op.c_dtype), op.c_frag_len)
 
 
 def _choose_load_vec(spec: UniversalGemmSpec) -> int:
     """Choose the widest naturally-aligned global-load width for this
-    block shape. f16 -> we can vectorise up to 8 halves per lane.
+    block shape: up to 16 bytes per lane (8 halves, 2 doubles).
 
     Thin adapter over :func:`rocke.helpers.spec.choose_load_vec`, the shared
     single-source picker; kept so callers (incl. ``moe_gemm_fused``) that
     pass a whole spec stay unchanged."""
     t = spec.tile
-    return choose_load_vec(t.tile_m, t.tile_n, t.tile_k, spec.block_size)
+    return choose_load_vec(
+        t.tile_m, t.tile_n, t.tile_k, spec.block_size, elem_bytes=_elem_bytes(spec)
+    )
 
 
 def _emit_smem_load(
     b: IRBuilder, smem: Value, row: Value, col: Value, n: int, dtype: Type
 ) -> Value:
+    """LDS fragment load; a one-element fragment is returned as a scalar."""
     if dtype == F16 and n == 4:
         return b.smem_load_v4_f16(smem, row, col)
-    return b.smem_load_vN(smem, row, col, dtype=dtype, n=n)
+    v = b.smem_load_vN(smem, row, col, dtype=dtype, n=n)
+    return b.vec_extract(v, 0) if n == 1 else v
 
 
 def _hotloop_inst_list(spec: UniversalGemmSpec, load_vec: int):
@@ -1470,6 +1526,8 @@ def build_universal_gemm(spec: UniversalGemmSpec, arch: str = "gfx950") -> Kerne
             return b.cmp_lt(b.add(k_off, elem_col), K)
 
         def _zero_storage_scalar() -> Value:
+            if storage_dtype == F64:
+                return b.const_f64(0.0)
             return b.cast_f32_to(b.const_f32(0.0), storage_dtype)
 
         def _mask_storage_scalar(value: Value, valid: Value) -> Value:
@@ -2225,9 +2283,9 @@ def _emit_mfma_acc_scatter(
     t = spec.tile
     mfmas_m = t.mfmas_per_warp_m
     mfmas_n = t.mfmas_per_warp_n
-    # The CWarpDstrEncoding is keyed on the warp-tile (m, n) only (the lane/
-    # slot -> (row, col) layout is dtype-independent), so resolve the atom by
-    # the spec's input dtype + warp-tile shape.
+    # The CWarpDstrEncoding is keyed on the warp-tile (m, n) and the
+    # accumulator dtype, so resolve the atom by the spec's input dtype +
+    # warp-tile shape.
     atom = mfma_atom(
         spec.data.dtype_a,
         t.warp_tile_m,
@@ -2262,7 +2320,11 @@ def _emit_mfma_acc_scatter(
         for ni in range(mfmas_n):
             acc = accs[flat]
             flat += 1
-            acc_h = b.vec_cast_f32_to(acc, storage_dtype)
+            acc_h = (
+                acc
+                if acc.type.elem == storage_dtype
+                else b.vec_cast_f32_to(acc, storage_dtype)
+            )
             if n_base_first:
                 c_n = b.add(
                     b.add(n_base_off, b.const_i32(ni * t.warp_tile_n)),
@@ -2317,6 +2379,7 @@ def _emit_epilogue_default(
     """
     t = spec.tile
     storage_dtype = _storage_dtype(spec)
+    elem_bytes = _elem_bytes(spec)
     mfmas_m = t.mfmas_per_warp_m
     mfmas_n = t.mfmas_per_warp_n
     pad_m = bool(spec.trait.pad_m)
@@ -2344,7 +2407,7 @@ def _emit_epilogue_default(
         column requires.
         """
         if not (pad_m or pad_n):
-            b.global_store(C, c_off, h, align=2)
+            b.global_store(C, c_off, h, align=elem_bytes)
             return
         checks: List[Value] = []
         if pad_m:
@@ -2353,7 +2416,7 @@ def _emit_epilogue_default(
             checks.append(b.cmp_lt(c_n, N))
         in_bounds = checks[0] if len(checks) == 1 else b.land(checks[0], checks[1])
         with b.scf_if(in_bounds):
-            b.global_store(C, c_off, h, align=2)
+            b.global_store(C, c_off, h, align=elem_bytes)
 
     # ---- WMMA (RDNA) accumulator scatter: fully MMA-contract driven. ----
     # The WMMA accumulator distributes the M x N tile across wave32 lanes
@@ -2554,6 +2617,7 @@ def _emit_epilogue_cshuffle(
     """
     t = spec.tile
     storage_dtype = _storage_dtype(spec)
+    elem_bytes = _elem_bytes(spec)
     mfmas_m = t.mfmas_per_warp_m
     mfmas_n = t.mfmas_per_warp_n
 
@@ -2639,9 +2703,9 @@ def _emit_epilogue_cshuffle(
 
     # ---- step 4: wide global stores. ----
     # STORE_VECS = (tile_m * tile_n) / store_vec. We pick store_vec as
-    # wide as we can naturally align (8 halves = 16 B).
+    # wide as we can naturally align (16 B: 8 halves, 2 doubles).
     threads = spec.block_size
-    store_vec = 8
+    store_vec = 16 // elem_bytes
     while store_vec > 1 and (
         (t.tile_n % store_vec != 0)
         or ((t.tile_m * t.tile_n) // store_vec < threads)
@@ -2710,9 +2774,9 @@ def _emit_epilogue_cshuffle(
                 h = fused_epilogue.apply_scalar(b, h, c_m, c_n)
             if in_bounds is not None:
                 with b.scf_if(in_bounds):
-                    b.global_store(C, c_off, h, align=2)
+                    b.global_store(C, c_off, h, align=elem_bytes)
             else:
-                b.global_store(C, c_off, h, align=2)
+                b.global_store(C, c_off, h, align=elem_bytes)
         else:
             hv = _load_smem_vec(b, Cs, row, col, store_vec, storage_dtype)
             if pad_n:
@@ -2730,7 +2794,7 @@ def _emit_epilogue_cshuffle(
                         checks[0] if len(checks) == 1 else b.land(checks[0], checks[1])
                     )
                     with b.scf_if(elem_in_bounds):
-                        b.global_store(C, c_off_i, h, align=2)
+                        b.global_store(C, c_off_i, h, align=elem_bytes)
             else:
                 if fused_epilogue is not None:
                     hv = fused_epilogue.apply_vec(b, hv, c_m, c_n, n_elems=store_vec)

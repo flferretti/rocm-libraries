@@ -78,16 +78,17 @@ static const rocke_mmaop_t* rocke_gemm_resolve_mma_op(const rocke_gemm_universal
                                          rocke_gemm_mma_family(arch),
                                          a_name,
                                          a_name,
-                                         "fp32",
+                                         (strcmp(a_name, "fp64") == 0) ? "fp64" : "fp32",
                                          t->warp_tile_m,
                                          t->warp_tile_n,
                                          t->warp_tile_k,
                                          nullptr);
 }
 
-/* _storage_dtype(spec): validate homogeneous A/B/C + fp32 acc + RCR layout,
- * then map the storage dtype string to its IR type. On a Python ValueError
- * path this returns NULL and sets the builder's sticky error. */
+/* _storage_dtype(spec): validate homogeneous A/B/C + fp32 acc (fp64 acc for
+ * fp64 storage) + RCR layout, then map the storage dtype string to its IR
+ * type. On a Python ValueError path this returns NULL and sets the builder's
+ * sticky error. */
 static const rocke_type_t* rocke_gemm_storage_dtype(rocke_ir_builder_t* b,
                                                     const rocke_gemm_universal_spec_t* spec)
 {
@@ -97,13 +98,24 @@ static const rocke_type_t* rocke_gemm_storage_dtype(rocke_ir_builder_t* b,
         /* "requires homogeneous A/B/C dtypes" */
         return rocke_b_io_ir_type(b, "");
     }
-    if(strcmp(d->dtype_acc, "fp32") != 0 && strcmp(d->dtype_acc, "f32") != 0)
+    if(strcmp(d->dtype_a, "fp64") == 0)
+    {
+        if(strcmp(d->dtype_acc, "fp64") != 0 && strcmp(d->dtype_acc, "f64") != 0)
+        {
+            return rocke_b_io_ir_type(b, "");
+        }
+    }
+    else if(strcmp(d->dtype_acc, "fp32") != 0 && strcmp(d->dtype_acc, "f32") != 0)
     {
         return rocke_b_io_ir_type(b, "");
     }
     if(strcmp(d->layout, "RCR") != 0)
     {
         return rocke_b_io_ir_type(b, "");
+    }
+    if(strcmp(d->dtype_a, "fp64") == 0)
+    {
+        return rocke_f64();
     }
     return rocke_b_io_ir_type(b, d->dtype_a); /* _dtype_ir == io_ir_type */
 }
@@ -1216,7 +1228,7 @@ rocke_kernel_def_t* rocke_build_universal_gemm(rocke_ir_builder_t* b,
         /* _ab_lds_plan(spec, arch) -> (ab_single, db, two_buf). Pure host
          * arithmetic, ported inline to mirror gemm_universal.py:_ab_lds_plan:
          *
-         *   ab_single   = (tile_m*tile_k + tile_n*tile_k) * 2
+         *   ab_single   = (tile_m*tile_k + tile_n*tile_k) * elem_bytes
          *   db_fits_2wg = (2*ab_single)*2 <= lds_capacity_bytes
          *   db          = compv4 && epilogue!=cshuffle && !direct_to_lds
          *                 && db_fits_2wg
@@ -1228,7 +1240,8 @@ rocke_kernel_def_t* rocke_build_universal_gemm(rocke_ir_builder_t* b,
          * smem [512x64] + a fully-unrolled prefetch prologue that Python never
          * emits. Apply the same arithmetic the validity gate and the load-path
          * helper (instance_gemm_build_load.c) use. */
-        long ab_single = ((long)t->tile_m * t->tile_k + (long)t->tile_n * t->tile_k) * 2;
+        long ab_single = ((long)t->tile_m * t->tile_k + (long)t->tile_n * t->tile_k)
+                         * rocke_gemm_elem_bytes(spec);
         bool db_fits_2wg = false;
         bool db = false;
         bool two_buf = false;

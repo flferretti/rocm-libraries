@@ -548,7 +548,10 @@ void rocke_gemm_emit_load_phase(rocke_gemm_build_ctx_t* ctx,
                               : (rvar))))
 
 #define PADK_VALID(elem_col) rocke_b_cmp_lt(b, rocke_b_add(b, k_off, (elem_col)), ctx->K)
-#define STORAGE_ZERO() rocke_b_cast_f32_to(b, rocke_b_const_f32(b, 0.0), ctx->storage_dtype)
+#define STORAGE_ZERO()                              \
+    (rocke_type_eq(ctx->storage_dtype, rocke_f64()) \
+         ? rocke_b_const_f64(b, 0.0)                \
+         : rocke_b_cast_f32_to(b, rocke_b_const_f32(b, 0.0), ctx->storage_dtype))
 #define MASK_STORAGE(value, valid) rocke_b_select(b, (valid), (value), STORAGE_ZERO())
 
     /* A-load loop. */

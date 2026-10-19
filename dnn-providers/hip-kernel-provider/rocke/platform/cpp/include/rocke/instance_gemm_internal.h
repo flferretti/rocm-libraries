@@ -256,7 +256,7 @@ typedef struct rocke_gemm_build_ctx
 /* _atom_frag_lengths(op) -> (a,b,c)_frag_len. Pure; fills out-params. */
 void rocke_gemm_atom_frag_lengths(const rocke_mmaop_t* op, int* a_frag, int* b_frag, int* c_frag);
 
-/* _emit_zero_acc_op(b, op): zero_vec_f32(op->c_frag_len). Used to build
+/* _emit_zero_acc_op(b, op): zero_vec(op->c_dtype, op->c_frag_len). Used to build
  * acc_init. (The MFMA-only _emit_zero_acc / _mfma_atom_widths variants are not
  * reached by the contract-driven body; kept here for parity with the Python
  * module surface.) */
@@ -282,10 +282,15 @@ rocke_value_t* rocke_gemm_emit_mfma(rocke_ir_builder_t* b,
 rocke_value_t* rocke_gemm_emit_zero_acc(rocke_ir_builder_t* b,
                                         const rocke_gemm_universal_spec_t* spec);
 
+/* _elem_bytes(spec): storage element size in bytes of the homogeneous A/B/C
+ * dtype. */
+int rocke_gemm_elem_bytes(const rocke_gemm_universal_spec_t* spec);
+
 /* _choose_load_vec(spec) -> width. Thin adapter over rocke_choose_load_vec. */
 int rocke_gemm_choose_load_vec(const rocke_gemm_universal_spec_t* spec);
 
-/* _emit_smem_load(b, smem, row, col, n, dtype): f16/n==4 fast path else vN. */
+/* _emit_smem_load(b, smem, row, col, n, dtype): f16/n==4 fast path else vN;
+ * a one-element fragment is returned as a scalar. */
 rocke_value_t* rocke_gemm_emit_smem_load(rocke_ir_builder_t* b,
                                          rocke_value_t* smem,
                                          rocke_value_t* row,
