@@ -460,16 +460,22 @@ if(ROCKE_INSTALL_TESTS)
             "  TIMEOUT 180)\n")
 
     # Library MLA CPU tests (no GPU required): kernel lowering/admission, dispatch
-    # wiring, the IR golden, the fp32 oracle, and the benchmark shape loader. Same
-    # PYTHONPATH contract as the conv entry above; the staged library tree carries
-    # kernels/mla, dispatch/mla, builders/mla, benchmarks/common/mla_shapes.py and
-    # tests/golden/mla_prefill_gfx942_ir_sha256.json.
+    # wiring, the IR goldens, the reference oracles, the decode host runner, and
+    # the benchmark shape files. Same PYTHONPATH contract as the conv entry
+    # above; the staged library tree carries kernels/mla, dispatch/mla,
+    # builders/mla, benchmarks/ and tests/golden/mla_*_ir_sha256.json.
     set(_ROCKE_LIBRARY_MLA_TEST_RELPATHS
         "tests/library/tests/test_mla_prefill_gfx942.py"
         "tests/library/tests/dispatch/mla/test_mla_prefill_gfx942_wiring.py"
         "tests/library/tests/test_mla_prefill_gfx942_golden.py"
         "tests/library/tests/test_mla_reference.py"
-        "tests/library/tests/test_mla_benchmark_shapes.py")
+        "tests/library/tests/test_mla_benchmark_shapes.py"
+        "tests/library/tests/test_mla_decode.py"
+        "tests/library/tests/dispatch/mla/test_mla_decode_wiring.py"
+        "tests/library/tests/test_mla_decode_golden.py"
+        "tests/library/tests/test_mla_decode_reference.py"
+        "tests/library/tests/test_mla_decode_runner.py"
+        "tests/library/tests/test_mla_decode_benchmark_shapes.py")
     set(_ROCKE_LIBRARY_MLA_TESTS "")
     foreach(_rocke_mla_test ${_ROCKE_LIBRARY_MLA_TEST_RELPATHS})
       string(APPEND _ROCKE_LIBRARY_MLA_TESTS
@@ -533,7 +539,7 @@ if(ROCKE_INSTALL_TESTS)
       endforeach()
     endforeach()
 
-    # Library GPU numeric suites: convolution, attention, KDA, and GDN.
+    # Library GPU numeric suites: convolution, attention, MLA, KDA, and GDN.
     # Select files rather than the "gpu" pytest marker because several runtime
     # tests lack that marker. Their dependency and architecture checks report
     # skips when the required torch installation or GPU is unavailable; the
@@ -560,7 +566,8 @@ if(ROCKE_INSTALL_TESTS)
         "tests/library/tests/test_mla_prefill_gfx942_numeric.py"
         "tests/library/tests/test_wmma_fmha_fwd_numeric.py"
         "tests/library/tests/test_wmma_fp8_decode_numeric.py"
-        "tests/library/tests/dispatch/attention/test_gfx1151_attention_dispatch_numeric.py")
+        "tests/library/tests/dispatch/attention/test_gfx1151_attention_dispatch_numeric.py"
+        "tests/library/tests/test_mla_decode_numeric.py")
     set(_ROCKE_LIBRARY_GPU_TESTS "")
     foreach(_rocke_gpu_test ${_ROCKE_LIBRARY_GPU_TEST_RELPATHS})
       string(APPEND _ROCKE_LIBRARY_GPU_TESTS
