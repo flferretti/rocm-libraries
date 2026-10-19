@@ -11,12 +11,12 @@
 
 /**
  * @file cudnn.h
- * @brief Stub C-API header for the hipDNN cuDNN-compatibility shim.
+ * @brief cuDNN C API header for the hipDNN cuDNN-compatibility shim.
  *
  * Hand-curated replacement for NVIDIA's `<cudnn.h>`: declares the C entry
  * points for handle init, stream binding, error handling, and version checks,
- * and pulls in the backend descriptor C API from `cudnn_graph.h`. Everything
- * forwards to an existing hipDNN equivalent.
+ * which forward to their hipDNN equivalents, and pulls in the backend
+ * descriptor C API from `cudnn_graph.h`.
  *
  * @note Forwarding goes through `hipdnn_frontend::detail::hipdnnBackend()` — the
  *       same mockable indirection `Handle.hpp` uses — so these entry points are
