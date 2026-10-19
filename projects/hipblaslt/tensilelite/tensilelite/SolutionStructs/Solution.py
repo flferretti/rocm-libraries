@@ -75,7 +75,9 @@ from ..Common.ValidParameters import validParameters, \
 from .Naming import getSolutionNameFull
 from .Problem import ProblemType
 from .segment_interleave import evaluate as segIntEval, aligned_budget_ok as segAlignedBudget, \
-  b_rotate_reason as segBRotateReason
+  b_rotate_reason as segBRotateReason, \
+  paired_buffer_reason as segPairedReason, paired_buffer_offsets as segPairedOffsets, \
+  paired_buffer_layout_reason as segPairedLayoutReason
 from ..Toolchain.Component import Assembler
 from ..Components.CustomSchedule import hasCustomSchedule
 
@@ -6493,6 +6495,35 @@ class Solution(collections.abc.Mapping):
       ldsNumBytesAB = state["LdsOffsetMetadata"] + ldsNumBytesMetadata
       state["StoreSwapAddr"] = False
 
+    # HalfPLR disables pointer expansion; resolve this before choosing the paired
+    # layout so rotation on/off uses the same buffering policy.
+    if state["HalfPLR"]:
+      state["ExpandPointerSwap"] = False
+
+    # Pairing is independent of B's read rotation. Resolve it before
+    # LDS occupancy, epilogue reuse and MaxLDS checks; retain the original data
+    # reservation so this change does not silently change occupancy/store policy.
+    if state["LDSSegmentBRotate"]:
+      _bRotReason = segBRotateReason(state, isPersistent(state))
+      if _bRotReason is not None:
+        reject(state, printRejectionReason, "LDSSegmentBRotate: %s" % _bRotReason)
+        return
+    if state["LDSSegmentBRotate"] or segPairedReason(state, isPersistent(state)) is None:
+      _pairedOffsets = segPairedOffsets(state)
+      _pairedReason = "layout exceeds MaxLDS" if _pairedOffsets is None else segPairedLayoutReason(state, _pairedOffsets)
+      if _pairedReason is None and _segRequested == -1 and _pairedOffsets["pairedUsedBytes"] > ldsNumBytesAB:
+        _pairedReason = "auto: skip pairing that grows LDS"
+      if _pairedReason is None:
+        state["LDSSegInterleaveOffsets"] = _pairedOffsets
+        state["StoreSwapAddr"] = True
+        ldsNumBytesAB = max(ldsNumBytesAB, _pairedOffsets["pairedUsedBytes"])
+      elif state["LDSSegmentBRotate"]:
+        # Rotation requires the paired physical layout; never silently fall back.
+        reject(state, printRejectionReason, "LDSSegmentBRotate: %s" % _pairedReason)
+        return
+      elif printRejectionReason:
+        print("LDSSegmentInterleave: paired layout skipped: %s" % _pairedReason)
+
     # lds size is the greater of the two
     ldsNumBytes = max(ldsNumBytesAB, ldsNumBytesReduction, ldsNumBytesOccupancy)
 
@@ -7005,7 +7036,6 @@ class Solution(collections.abc.Mapping):
     if state["HalfPLR"]:
       state["ClusterLocalRead"] = 0
       state["SuppressNoLoadLoop"] = True
-      state["ExpandPointerSwap"] = False
       if state.get("PrefetchAcrossPersistent", 0):
         if not isPersistentDataParallel(state):
           reject(state, printRejectionReason, "HalfPLR + PrefetchAcrossPersistent requires DataParallel/StaticGrid")
@@ -7368,12 +7398,6 @@ class Solution(collections.abc.Mapping):
       kMax = Solution.rapMaxResidentKTiles(
           state, problemType, isa, isaInfoMap, packedC0, packedC1)
       state["_RAPNumResidentKTiles"] = max(state["PrefetchGlobalRead"] + 1, kMax or 0)
-
-    if state["LDSSegmentBRotate"]:
-      _bRotReason = segBRotateReason(state, isPersistent(state))
-      if _bRotReason is not None:
-        reject(state, printRejectionReason, "LDSSegmentBRotate: %s" % _bRotReason)
-        return
 
   ########################################
   @ staticmethod

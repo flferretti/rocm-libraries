@@ -386,12 +386,11 @@ def evaluate(state):
 def b_rotate_reason(state, persistent=False):
     """LDSSegmentBRotate gate. Returns None when B-rotate can be applied, else the reject reason.
 
-    B-rotate builds on the [2,2] split layout (A0/B0 component 0, A1/B1 component 1, component
-    stride S = writeStrideBytes, aligned S == 64K or tight 64K < S < 128K). LocalRead reaches B half
-    h through LocalReadAddrB+h; SIMD pair 1 (odd waves) gets +0 = root + S and +1 = +0 + 64K - 2S, so
-    it reads vIdx v from the other component, i.e. the data of rot(v) = (v + nV/2) mod nV. Both pairs
-    then always read addresses exactly S apart, which with 64K <= S < 128K are in different 64K LDS
-    segments. The accumulator halves are swapped back before the epilogue.
+    Validate the original [2,2] split layout before pairing its ping-pong copies.
+    B's logical component stride stays in [64K, 128K), so LocalReadAddrB+h still selects
+    half h. The physical component stride comes from the common paired layout; a per-wave
+    register delta bridges that distance and rotates odd waves' B reads. The accumulator halves are
+    swapped back before the epilogue. Each component's two buffers remain adjacent.
     """
     pt = state["ProblemType"]
     if tuple(state.get("ISA", ()))[:2] != (12, 5):            return "not gfx1250"
@@ -399,7 +398,7 @@ def b_rotate_reason(state, persistent=False):
     o = state.get("LDSSegInterleaveOffsets") or {}
     for key in ("aBaseline", "bBaseline", "portSplitA", "portSplitB", "componentSplit"):
         if o.get(key):                                        return "LSI layout '%s' not supported" % key
-    S = o.get("writeStrideBytes", 0)
+    S = o.get("readStrideBytesB", o.get("writeStrideBytes", 0))
     if not (SEG <= S < 2 * SEG):                              return "component stride must be in [64K, 128K)"
     fB = _footprint(state, "B")
     baseB = o.get("ldsBaseB", 0)
@@ -409,15 +408,17 @@ def b_rotate_reason(state, persistent=False):
     if baseB < S - SEG:                                       return "ldsBaseB below S - 64K"
     if state.get("NumLdsBlk") != 2 or state.get("1LDSBuffer") != 0:
         return "needs 2 LDS buffers"
-    if not state.get("StoreSwapAddr"):
-        # XOR/AND buffer swap: the pair offset must stay below the buffer bit.
-        blk = state.get("LdsOffsetA_Blk", 0)
-        if blk <= 0 or (blk & (blk - 1)) or baseB + S + fB > blk:
-            return "LdsOffsetA_Blk must be a power of two above the B component span"
-    if state.get("PrefetchGlobalRead") != 2:                  return "needs PrefetchGlobalRead=2"
-    if state.get("ExpandPointerSwap"):                        return "needs ExpandPointerSwap=0"
     if list(state["MIWaveGroup"]) != [2, 2] or state["NumWaves"] != 4 or state["WavefrontSize"] != 32:
         return "needs MIWaveGroup [2,2], 4 waves, wave32"
+    fA = _footprint(state, "A")
+    if fA > SEG:
+        return "A component exceeds 64K"
+    if not (state.get("enableTDMA") and state.get("enableTDMB")):
+        return "needs wave-separated TDM for both operands"
+    if state.get("PrefetchGlobalReadA", -1) != -1 or state.get("PrefetchGlobalReadB", -1) != -1:
+        return "decoupled PrefetchGlobalReadA/B not supported"
+    if state.get("PrefetchGlobalRead") != 2:                  return "needs PrefetchGlobalRead=2"
+    if state.get("ExpandPointerSwap"):                        return "needs ExpandPointerSwap=0"
     vwb, wtb = state["VectorWidthB"], state["MIWaveTile"][1]
     if vwb <= 0 or wtb % vwb != 0 or (wtb // vwb) % 2 != 0:
         return "MIWaveTile[1]/VectorWidthB must be even"
@@ -442,4 +443,141 @@ def b_rotate_reason(state, persistent=False):
     if state.get("LocalSplitU", 1) > 1:                       return "LocalSplitU>1 not supported"
     if state.get("NumWaveSplitK", 1) > 1:                     return "NumWaveSplitK>1 not supported"
     if persistent:                                            return "persistent / StreamK not supported"
+    return None
+
+
+def paired_buffer_reason(state, persistent=False):
+    """Limit general pairing to the existing two-buffer TDM emit path."""
+    if state.get("LDSSegmentInterleave") != 1:
+        return "segment interleave is not active"
+    if state.get("NumLdsBlk") != 2 or state.get("1LDSBuffer") != 0:
+        return "needs two LDS buffers"
+    if state.get("PrefetchGlobalRead") != 2:
+        return "needs PrefetchGlobalRead=2"
+    if state.get("WavefrontSize") != 32:
+        return "needs wave32"
+    if state.get("PrefetchGlobalReadA", -1) != -1 or state.get("PrefetchGlobalReadB", -1) != -1:
+        return "decoupled prefetch is not supported"
+    if persistent:
+        return "persistent / StreamK is not supported"
+    for key in ("ExpandPointerSwap", "TDMSplit", "UseSubtileImpl", "DirectToVgprA",
+                "DirectToVgprB", "DirectToLdsA", "DirectToLdsB", "enableLDSTrA",
+                "enableLDSTrB", "UseDotInstruction", "UseCustomMainLoopSchedule",
+                "PrefetchAcrossPersistent", "TDMFuse"):
+        v = state.get(key)
+        if v is True or (isinstance(v, int) and v > 0):
+            return "%s is not supported" % key
+    if state.get("LocalSplitU", 1) != 1 or state.get("NumWaveSplitK", 1) > 1:
+        return "split-K LDS layout is not supported"
+    # Sub-byte packing needs separate hardware validation, including mixed formats.
+    pt = state["ProblemType"]
+    if any(pt.get("MacDataType" + tc, pt["DataType"]).isFloat4() for tc in ("A", "B")):
+        return "FP4 pairing has not been validated"
+    return None
+
+
+def paired_buffer_offsets(state, isolate_operands=False):
+    """Pair existing read groups without changing their membership or read order.
+
+    Separate corresponding component footprints in each buffer phase, equally for
+    A and B. Cross-phase and cross-operand accesses may still share segments.
+    A contiguous operand retains its original padding phase. Optional operand isolation
+    adds segment gaps between every pair; reject it if the complete layout does not
+    fit. The caller includes pairedUsedBytes in the normal LDS budget calculation.
+    """
+    offsets = dict(state["LDSSegInterleaveOffsets"])
+    base = state["LdsOffsetA"]
+    shared = "A" if offsets.get("aBaseline") else ("B" if offsets.get("bBaseline") else None)
+    active = "B" if shared == "A" else "A"
+    fActive = _footprint(state, active)
+    fOther = _tensor_footprint(state, shared) if shared else _footprint(state, "B")
+    other = shared or "B"
+    otherBase = _ceil_seg(base + 2*fActive) if isolate_operands else base + 2*fActive
+    stride = otherBase - base + 2*fOther
+    if isolate_operands:
+        stride = _ceil_seg(base + stride) - base
+    else:
+        # Use one component stride for both operands. Each component-1 ping/pong
+        # copy must start past the last segment occupied by the matching
+        # component-0 copy, including padding. The natural stride already keeps
+        # the intervening pair out of the way; only add a gap if needed.
+        splitPairs = [(base, fActive)]
+        if not shared:
+            splitPairs.append((otherBase, fOther))
+        for pairBase, size in splitPairs:
+            for buffer in (0, 1):
+                start = pairBase + buffer * size
+                end = start + size  # Exclusive: an exact segment boundary is reusable.
+                nextSegmentStart = _ceil_seg(end)
+                stride = max(stride, nextSegmentStart - start)
+    offsets["ldsBase" + active] = base
+    offsets["ldsBase" + other] = otherBase
+    offsets["bufferStride" + active] = fActive
+    offsets["bufferStride" + other] = fOther
+    if state.get("LDSSegmentBRotate"):
+        # Preserve logical DS half selection while VGPR bases bridge the common
+        # physical stride. Rotation changes read order, never data placement.
+        offsets["readStrideBytesB"] = offsets.get("readStrideBytesB", offsets["writeStrideBytes"])
+    else:
+        offsets.pop("readStrideBytesB", None)
+    offsets["writeStrideBytes"] = stride
+    end = base + stride + 2*fActive if shared else otherBase + stride + 2*fOther
+    for tc in ("MXSA", "MXSB"):
+        if "ldsBase" + tc in offsets:
+            size = int(state["LdsNumElementsAligned" + tc])
+            offsets["ldsBase" + tc] = end
+            offsets["bufferStride" + tc] = size
+            end += 2*size
+    if end > state["MaxLDS"]:
+        return None
+    offsets["pairedBuffers"] = True
+    offsets["pairedUsedBytes"] = end
+    offsets["pairedOperandIsolation"] = isolate_operands
+    # Narrow [2,2] B reads reach both components through DS immediates. Reserve
+    # only reachable 64 KiB windows, rather than allocating registers for gaps.
+    if state.get("LDSSegmentBRotate"):
+        # B rotation uses two logical halves, not the ordinary physical windows.
+        offsets.pop("readAddressWindowsB", None)
+    elif not shared and state["MIWaveGroup"] == [2, 2] and not _coarse(state, "B"):
+        windows = set(range((fOther - 1)//SEG + 1))
+        windows.update(range(stride//SEG, (stride + fOther - 1)//SEG + 1))
+        offsets["readAddressWindowsB"] = sorted(windows)
+    return offsets
+
+
+def paired_buffer_layout_reason(state, offsets):
+    """Validate physical placement, independently of the read-conflict policy.
+
+    Footprints retain their existing internal padding. This checks every ping/pong
+    start (including LDS-resident MX scales), allocation overlap and the LDS budget;
+    it does not replace the TDM padding-phase or per-instruction read checks.
+    """
+    regions = []
+    for tc in ("A", "B", "MXSA", "MXSB"):
+        if tc in ("A", "B"):
+            shared = offsets.get("aBaseline" if tc == "A" else "bBaseline", False)
+            size = _tensor_footprint(state, tc) if shared else _footprint(state, tc)
+            components = 1 if shared else 2
+        else:
+            if "ldsBase" + tc not in offsets:
+                continue
+            size = int(state["LdsNumElementsAligned" + tc])
+            components = 1
+        base = offsets.get("ldsBase" + tc, state["LdsOffsetA"])
+        bufferStride = offsets["bufferStride" + tc]
+        if size <= 0:
+            return "%s has an empty paired footprint" % tc
+        for component in range(components):
+            for buffer in (0, 1):
+                start = base + component * offsets["writeStrideBytes"] + buffer * bufferStride
+                name = "%s%d %s" % (tc, component, "pong" if buffer else "ping")
+                if start < 0 or start % 16:
+                    return "%s start %d is not a non-negative 16-byte-aligned address" % (name, start)
+                regions.append((start, start + size, name))
+    regions.sort()
+    for left, right in zip(regions, regions[1:]):
+        if left[1] > right[0]:
+            return "%s overlaps %s" % (left[2], right[2])
+    if regions[-1][1] > state["MaxLDS"]:
+        return "paired layout exceeds MaxLDS"
     return None

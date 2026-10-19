@@ -423,12 +423,17 @@ validParameters = { # we need to make sure this matches develop
     #    0 = off (default): baseline layout.
     #    1 = on: enable wherever valid, including cases that reserve more LDS to reach a segment
     #            boundary (needs PrefetchGlobalRead=2).
+    # Supported two-buffer PGR2 paths pair each logical group's ping/pong copies,
+    # preserving contiguous operands and separating corresponding component footprints
+    # into disjoint segments within each ping/pong phase.
+    # This placement does not require B read rotation.
     # Recommended: set [0, 1] when tuning to compare baseline vs interleaved.
     "LDSSegmentInterleave": [-1, 0, 1],
-    # LDSSegmentBRotate (gfx1250, needs LDSSegmentInterleave=1 aligned [2,2] layout): split B into
-    # two N-halves in different LDS segments and let SIMD pair 1 (odd waves) read its B vIdx groups
-    # rotated by half (v -> (v + nV/2) mod nV), so the two LDS read ports never read the same
-    # segment at the same time. Pair 1's accumulator halves are swapped back before the epilogue.
+    # LDSSegmentBRotate (gfx1250, needs LDSSegmentInterleave=1 split [2,2] layout): rotate
+    # SIMD pair 1's B reads by half and restore its accumulator halves before the epilogue.
+    # Reuse the same paired layout and per-buffer segment separation as rotation off:
+    # [A0 ping][A0 pong][B0 ping][B0 pong][A1 ping][A1 pong][B1 ping][B1 pong].
+    # B rotation changes read order and accumulator mapping, not physical placement.
     #   0 = off (default), 1 = on.
     "LDSSegmentBRotate": [0, 1],
     # Persistent loop: use the current tile's no-load-loop window to
