@@ -1730,6 +1730,38 @@
           "sha256": "2d1d922e9dd87e138c473f866e6919b36c0cec336b575d0dff4e5d0a61e6b383",
           "status": "ok"
         },
+        "mma_atom/gfx950/f8f6f4_16x16x128_mx_bf8e5m2": {
+          "arch": "gfx950",
+          "bytes": 1833,
+          "family": "mma_atom",
+          "kernel_name": "irhash_f8f6f4_16x16x128_mx_bf8e5m2",
+          "sha256": "819d2aabd5f6e32c43f64d8b92c2d74a793d628ad64beba0eab485c3ae5eff97",
+          "status": "ok"
+        },
+        "mma_atom/gfx950/f8f6f4_16x16x128_mx_fp4e2m1": {
+          "arch": "gfx950",
+          "bytes": 1833,
+          "family": "mma_atom",
+          "kernel_name": "irhash_f8f6f4_16x16x128_mx_fp4e2m1",
+          "sha256": "777aaef2ec013da2dad1a39d7a9c63487b783c7b19b9dfa74cfbaf882b0ea2cb",
+          "status": "ok"
+        },
+        "mma_atom/gfx950/f8f6f4_16x16x128_mx_fp6e2m3": {
+          "arch": "gfx950",
+          "bytes": 1833,
+          "family": "mma_atom",
+          "kernel_name": "irhash_f8f6f4_16x16x128_mx_fp6e2m3",
+          "sha256": "af46f0fb22101a90d0426cd7526b3b3d2554a89b78ea2490b0328e02a7d9580d",
+          "status": "ok"
+        },
+        "mma_atom/gfx950/f8f6f4_16x16x128_mx_fp6e3m2": {
+          "arch": "gfx950",
+          "bytes": 1833,
+          "family": "mma_atom",
+          "kernel_name": "irhash_f8f6f4_16x16x128_mx_fp6e3m2",
+          "sha256": "90da8a55c81ac342e4671d9890e44d9802bcec78033614a493f2ea15745df660",
+          "status": "ok"
+        },
         "moe_sort/gfx1151/hist_t32_k2_e8": {
           "arch": "gfx1151",
           "bytes": 3011,
@@ -1822,7 +1854,7 @@
           "gfx1250": 4,
           "gfx90a": 5,
           "gfx942": 42,
-          "gfx950": 153
+          "gfx950": 157
         },
         "expected_failures": 4,
         "families": {
@@ -1844,11 +1876,11 @@
           "gemm": 13,
           "grouped_gemm": 1,
           "kda_chunkwise": 13,
-          "mma_atom": 2,
+          "mma_atom": 6,
           "moe": 9,
           "nontemporal": 2
         },
-        "ok_cases": 224
+        "ok_cases": 228
       }
     },
     "llvm22": {
@@ -3581,6 +3613,38 @@
           "sha256": "347c3c099bc973473c3a38cf521427e1634ba2924beeeb709ac837f4f3a7b95c",
           "status": "ok"
         },
+        "mma_atom/gfx950/f8f6f4_16x16x128_mx_bf8e5m2": {
+          "arch": "gfx950",
+          "bytes": 1840,
+          "family": "mma_atom",
+          "kernel_name": "irhash_f8f6f4_16x16x128_mx_bf8e5m2",
+          "sha256": "5dd94737b0fc472111180f60668e40efe019300ecfb0a39c9f2df41fda61e9e8",
+          "status": "ok"
+        },
+        "mma_atom/gfx950/f8f6f4_16x16x128_mx_fp4e2m1": {
+          "arch": "gfx950",
+          "bytes": 1840,
+          "family": "mma_atom",
+          "kernel_name": "irhash_f8f6f4_16x16x128_mx_fp4e2m1",
+          "sha256": "6284c8664c0fc3257752dab54d218b0762b108558938d7d650dd19e8723c88d8",
+          "status": "ok"
+        },
+        "mma_atom/gfx950/f8f6f4_16x16x128_mx_fp6e2m3": {
+          "arch": "gfx950",
+          "bytes": 1840,
+          "family": "mma_atom",
+          "kernel_name": "irhash_f8f6f4_16x16x128_mx_fp6e2m3",
+          "sha256": "5110537c4a78109364fbda3000325776b8956749c21356d775955e80937c7195",
+          "status": "ok"
+        },
+        "mma_atom/gfx950/f8f6f4_16x16x128_mx_fp6e3m2": {
+          "arch": "gfx950",
+          "bytes": 1840,
+          "family": "mma_atom",
+          "kernel_name": "irhash_f8f6f4_16x16x128_mx_fp6e3m2",
+          "sha256": "191da8bf857011fe0ae6d62938f277d4aa95c0b331580fadff34370df16a29f5",
+          "status": "ok"
+        },
         "moe_sort/gfx1151/hist_t32_k2_e8": {
           "arch": "gfx1151",
           "bytes": 3018,
@@ -3673,7 +3737,7 @@
           "gfx1250": 4,
           "gfx90a": 5,
           "gfx942": 42,
-          "gfx950": 153
+          "gfx950": 157
         },
         "expected_failures": 4,
         "families": {
@@ -3695,11 +3759,11 @@
           "gemm": 13,
           "grouped_gemm": 1,
           "kda_chunkwise": 13,
-          "mma_atom": 2,
+          "mma_atom": 6,
           "moe": 9,
           "nontemporal": 2
         },
-        "ok_cases": 224
+        "ok_cases": 228
       }
     },
     "llvm23": {
@@ -5464,6 +5528,38 @@
           "sha256": "01aec45ea8269cf843067e07b63f197330bbbdc0b397e4d816ea42938a374b69",
           "status": "ok"
         },
+        "mma_atom/gfx950/f8f6f4_16x16x128_mx_bf8e5m2": {
+          "arch": "gfx950",
+          "bytes": 1904,
+          "family": "mma_atom",
+          "kernel_name": "irhash_f8f6f4_16x16x128_mx_bf8e5m2",
+          "sha256": "1206edef981c1ff783e5d3d4a51783fc3fb999e332548da0186d2999ad0404c6",
+          "status": "ok"
+        },
+        "mma_atom/gfx950/f8f6f4_16x16x128_mx_fp4e2m1": {
+          "arch": "gfx950",
+          "bytes": 1904,
+          "family": "mma_atom",
+          "kernel_name": "irhash_f8f6f4_16x16x128_mx_fp4e2m1",
+          "sha256": "0da05ed72a7761b1bac5fd59fdd7a5d732388df2d8f20dc8e6b4293b319aa23c",
+          "status": "ok"
+        },
+        "mma_atom/gfx950/f8f6f4_16x16x128_mx_fp6e2m3": {
+          "arch": "gfx950",
+          "bytes": 1904,
+          "family": "mma_atom",
+          "kernel_name": "irhash_f8f6f4_16x16x128_mx_fp6e2m3",
+          "sha256": "88f5a27371ec23a237aa5a422467e70fb39aae8b979413efc7a5bda2bd30786e",
+          "status": "ok"
+        },
+        "mma_atom/gfx950/f8f6f4_16x16x128_mx_fp6e3m2": {
+          "arch": "gfx950",
+          "bytes": 1904,
+          "family": "mma_atom",
+          "kernel_name": "irhash_f8f6f4_16x16x128_mx_fp6e3m2",
+          "sha256": "84ecf3c4bff60509011e51096315d9c817b5ae5bc5cd16183cbf1bf75d5f5af6",
+          "status": "ok"
+        },
         "moe_sort/gfx1151/hist_t32_k2_e8": {
           "arch": "gfx1151",
           "bytes": 3082,
@@ -5539,7 +5635,7 @@
           "gfx1250": 8,
           "gfx90a": 5,
           "gfx942": 42,
-          "gfx950": 153
+          "gfx950": 157
         },
         "expected_failures": 0,
         "families": {
@@ -5561,11 +5657,11 @@
           "gemm": 17,
           "grouped_gemm": 1,
           "kda_chunkwise": 13,
-          "mma_atom": 2,
+          "mma_atom": 6,
           "moe": 9,
           "nontemporal": 2
         },
-        "ok_cases": 228
+        "ok_cases": 232
       }
     }
   },
