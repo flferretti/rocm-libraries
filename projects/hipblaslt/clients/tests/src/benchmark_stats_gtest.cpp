@@ -21,9 +21,8 @@ using hipblaslt_bench::validate_adaptive_config;
 
 TEST(HostUnitBenchmarkTiming, smoke_ZeroTimedIterationsDoesNotLaunch)
 {
-    // Generated race-detection inputs request one numerical-validation launch
-    // and zero timed launches. Previously zero was coerced to one, running the
-    // GEMM twice. This regression covers the timing helper used by that bench path.
+    // Validation-only inputs rely on zero timed launches. The timing helper
+    // must return without invoking the callback or touching HIP resources.
     TimingConfig cfg;
     cfg.iters = 0;
     // The early return must work without a GPU or valid HIP events/stream.
