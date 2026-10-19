@@ -749,6 +749,7 @@ class CustomKernel:
 
 class SizeMapping:
     StateKeys = ['waveNum',
+                 'WavefrontSize',
                  'workGroup',
                  'macroTile',
                  'threadTile',
@@ -855,6 +856,7 @@ class SizeMapping:
         dtlB = bool(d['DirectToLdsB'])
 
         return cls(waveNum                  = d['NumThreads'] // d['WavefrontSize'],
+                   WavefrontSize            = d['WavefrontSize'],
                    workGroup                = d['WorkGroup'],
                    macroTile                = cls.ReadOriginalMacroTile(d),
                    threadTile               = d['ThreadTile'],

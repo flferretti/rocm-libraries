@@ -399,6 +399,7 @@ namespace TensileLite
     struct SizeMapping
     {
         size_t waveNum;
+        int    WavefrontSize = 0;
 
         dim3 clusterDim{1, 1, 1};
 
