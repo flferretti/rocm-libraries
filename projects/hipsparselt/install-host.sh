@@ -61,10 +61,10 @@ supported_distro( )
   fi
 
   case "${ID}" in
-    ubuntu|centos|rhel|fedora|sles|opensuse-leap)
+    ubuntu|centos|rhel|almalinux|fedora|sles|opensuse-leap)
         true
         ;;
-    *)  printf "This script is currently supported on Ubuntu, CentOS, RHEL, Fedora and SLES\n"
+    *)  printf "This script is currently supported on Ubuntu, CentOS, RHEL, AlmaLinux, Fedora and SLES\n"
         exit 2
         ;;
   esac
@@ -216,7 +216,7 @@ install_packages( )
       fi
       ;;
 
-    centos|rhel)
+    centos|rhel|almalinux)
 #     yum -y update brings *all* installed packages up to date
 #     without seeking user approval
 #     elevate_if_not_root yum -y update
@@ -255,7 +255,7 @@ install_packages( )
       fi
       ;;
     *)
-      echo "This script is currently supported on Ubuntu, SLES, CentOS, RHEL and Fedora"
+      echo "This script is currently supported on Ubuntu, SLES, CentOS, RHEL, AlmaLinux and Fedora"
       exit 2
       ;;
   esac
@@ -482,7 +482,7 @@ install_blis()
       #Download prebuilt AMD multithreaded blis
       if [[ ! -e "${build_dir}/deps/blis/lib/libblis.a" ]]; then
           case "${ID}" in
-              centos|rhel|sles|opensuse-leap)
+              centos|rhel|almalinux|sles|opensuse-leap)
                   wget -nv -O blis.tar.gz https://github.com/amd/blis/releases/download/2.0/aocl-blis-mt-centos-2.0.tar.gz
                   ;;
               ubuntu)
@@ -501,7 +501,7 @@ install_blis()
           cd blis/lib
           ln -sf libblis-mt.a libblis.a
       fi
-      blis_dir=${build_dir}
+      blis_dir=${build_dir}/deps/blis
     fi
 }
 
@@ -535,7 +535,7 @@ if [[ "${install_dependencies}" == true ]]; then
 
   # cmake is needed to install msgpack
   case "${ID}" in
-    centos|rhel|sles|opensuse-leap)
+    centos|rhel|almalinux|sles|opensuse-leap)
       if [[ "${tensile_msgpack_backend}" == true ]]; then
         install_msgpack_from_source
       fi
@@ -722,7 +722,7 @@ pushd .
       ubuntu)
         elevate_if_not_root dpkg -i hipsparselt[-\_]*.deb
       ;;
-      centos|rhel)
+      centos|rhel|almalinux)
         # hipblaslt-style: upgrade the locally-built RPMs without dependency solving.
         # This avoids conflicts with pinned ROCm meta-packages (e.g. rocm-hip) in CI images.
         elevate_if_not_root rpm --nodeps -U hipsparselt-*.rpm

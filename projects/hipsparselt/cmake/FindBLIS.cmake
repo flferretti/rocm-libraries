@@ -11,10 +11,17 @@ if(PKG_CONFIG_FOUND)
     pkg_check_modules(PC_BLIS QUIET blis)
 endif()
 
+set(_blis_include_hints ${PC_BLIS_INCLUDE_DIRS})
+set(_blis_library_hints ${PC_BLIS_LIBRARY_DIRS})
+if(HIPSPARSELT_BLIS_DIR)
+    list(APPEND _blis_include_hints "${HIPSPARSELT_BLIS_DIR}/include/blis")
+    list(APPEND _blis_library_hints "${HIPSPARSELT_BLIS_DIR}/lib")
+endif()
+
 find_path(
     BLIS_INCLUDE_DIR
     NAMES blis.h
-    HINTS ${PC_BLIS_INCLUDE_DIRS}
+    HINTS ${_blis_include_hints}
     PATHS /opt/AMD/aocl/aocl-linux-gcc-4.2.0/gcc/include_ILP64
           /opt/AMD/aocl/aocl-linux-aocc-4.1.0/aocc/include_ILP64
           /opt/AMD/aocl/aocl-linux-aocc-4.0/include_ILP64
@@ -34,7 +41,7 @@ endif()
 find_library(
     BLIS_LIBRARY
     NAMES blis-mt blis
-    HINTS ${PC_BLIS_LIBRARY_DIRS}
+    HINTS ${_blis_library_hints}
     PATHS /opt/AMD/aocl/aocl-linux-gcc-4.2.0/gcc/lib_ILP64
           /opt/AMD/aocl/aocl-linux-aocc-4.1.0/aocc/lib_ILP64
           /opt/AMD/aocl/aocl-linux-aocc-4.0/lib_ILP64 /opt/blis/lib /usr/local/lib /usr/lib
@@ -62,3 +69,5 @@ if(BLIS_FOUND)
 endif()
 
 mark_as_advanced(BLIS_INCLUDE_DIR BLIS_LIBRARY)
+unset(_blis_include_hints)
+unset(_blis_library_hints)

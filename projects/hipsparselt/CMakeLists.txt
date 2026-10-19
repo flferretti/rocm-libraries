@@ -312,6 +312,11 @@ endif()
 
 if(HIPSPARSELT_ENABLE_BENCHMARKS)
     rocm_package_setup_client_component(benchmarks DEPENDS COMPONENT clients-common)
+    rocm_package_add_rpm_dependencies(COMPONENT benchmarks DEPENDS "lapack" "blas")
+endif()
+
+if(HIPSPARSELT_BUILD_TESTING OR BUILD_TESTING)
+    rocm_package_add_rpm_dependencies(COMPONENT tests DEPENDS "lapack" "blas")
 endif()
 
 if(HIPSPARSELT_ENABLE_SAMPLES)

@@ -59,8 +59,90 @@ env:
   ROCM_VERSION: 7.0.2
 
 jobs:
+  configure:
+    name: Configure drop build
+    runs-on: ubuntu-24.04
+    outputs:
+      test_matrix: ${{ steps.matrix.outputs.test_matrix }}
+    steps:
+      - name: Build test matrix
+        id: matrix
+        env:
+          REQUESTED_GPU_TARGETS: ${{ inputs.gpu_targets || 'gfx942;gfx950' }}
+          GFX942_RUNNER: ${{ inputs.gfx942_runner || 'linux-gfx942-1gpu-ccs-csp-ossci-rocm' }}
+          GFX950_RUNNER: ${{ inputs.gfx950_runner || 'linux-gfx950-1gpu-ccs-ossci-rocm' }}
+          GFX950_MULTI_GPU_RUNNER: ${{ inputs.gfx950_2gpu_runner || 'linux-gfx950-8gpu-ccs-ossci-rocm' }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+
+          requested = {
+              item.split(":", 1)[0]
+              for item in re.split(r"[;,]", os.environ["REQUESTED_GPU_TARGETS"])
+              if item.strip()
+          }
+          supported = {"gfx942", "gfx950"}
+          unsupported = requested - supported
+          if unsupported:
+              names = ", ".join(sorted(unsupported))
+              raise SystemExit(f"Unsupported drop-build GPU target(s): {names}")
+          if not requested:
+              raise SystemExit("At least one GPU target is required")
+
+          include = []
+          common_filter = "*smoke*:*quick*:*pre_checkin*:*nightly*-*known_bug*"
+          if "gfx942" in requested:
+              include.extend([
+                  {
+                      "name": "hipBLASLt tests (gfx942)",
+                      "runner": os.environ["GFX942_RUNNER"],
+                      "binary": "hipblaslt-test",
+                      "artifact_suffix": "gfx942",
+                      "filter": common_filter,
+                  },
+                  {
+                      "name": "hipSPARSELt tests (gfx942)",
+                      "runner": os.environ["GFX942_RUNNER"],
+                      "binary": "hipsparselt-test",
+                      "artifact_suffix": "gfx942",
+                      "filter": common_filter,
+                  },
+              ])
+          if "gfx950" in requested:
+              include.extend([
+                  {
+                      "name": "hipBLASLt tests (gfx950)",
+                      "runner": os.environ["GFX950_RUNNER"],
+                      "binary": "hipblaslt-test",
+                      "artifact_suffix": "gfx950",
+                      "filter": common_filter,
+                  },
+                  {
+                      "name": "hipSPARSELt tests (gfx950)",
+                      "runner": os.environ["GFX950_RUNNER"],
+                      "binary": "hipsparselt-test",
+                      "artifact_suffix": "gfx950",
+                      "filter": common_filter,
+                  },
+                  {
+                      "name": "hipBLASLt multi-GPU tests (2 x gfx950)",
+                      "runner": os.environ["GFX950_MULTI_GPU_RUNNER"],
+                      "binary": "hipblaslt-test",
+                      "artifact_suffix": "2xgfx950",
+                      "hip_visible_devices": "0,1",
+                      "filter": "*multi_gpu*",
+                  },
+              ])
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"test_matrix={json.dumps({'include': include}, separators=(',', ':'))}\n")
+          PY
+
   build-rpms:
     name: Build hipBLASLt and hipSPARSELt RPMs
+    needs: configure
     if: github.repository == 'ROCm/rocm-libraries'
     runs-on: ${{ inputs.build_runner || 'aws-linux-scale-rocm-prod' }}
     timeout-minutes: 600
@@ -106,6 +188,8 @@ jobs:
           dnf -y install \
             amd-smi-lib \
             hip-devel \
+            hipsparse-devel \
+            lapack-devel \
             numactl-devel \
             rocm-llvm-devel \
             rocm-openmp \
@@ -242,40 +326,13 @@ jobs:
 
   test-rpms:
     name: ${{ matrix.name }}
-    needs: build-rpms
+    needs: [configure, build-rpms]
     if: github.repository == 'ROCm/rocm-libraries'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 300
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: hipBLASLt tests (gfx942)
-            runner: ${{ inputs.gfx942_runner || 'linux-gfx942-1gpu-ccs-csp-ossci-rocm' }}
-            binary: hipblaslt-test
-            artifact_suffix: gfx942
-            filter: "*smoke*:*quick*:*pre_checkin*:*nightly*-*known_bug*"
-          - name: hipSPARSELt tests (gfx942)
-            runner: ${{ inputs.gfx942_runner || 'linux-gfx942-1gpu-ccs-csp-ossci-rocm' }}
-            binary: hipsparselt-test
-            artifact_suffix: gfx942
-            filter: "*smoke*:*quick*:*pre_checkin*:*nightly*-*known_bug*"
-          - name: hipBLASLt tests (gfx950)
-            runner: ${{ inputs.gfx950_runner || 'linux-gfx950-1gpu-ccs-ossci-rocm' }}
-            binary: hipblaslt-test
-            artifact_suffix: gfx950
-            filter: "*smoke*:*quick*:*pre_checkin*:*nightly*-*known_bug*"
-          - name: hipSPARSELt tests (gfx950)
-            runner: ${{ inputs.gfx950_runner || 'linux-gfx950-1gpu-ccs-ossci-rocm' }}
-            binary: hipsparselt-test
-            artifact_suffix: gfx950
-            filter: "*smoke*:*quick*:*pre_checkin*:*nightly*-*known_bug*"
-          - name: hipBLASLt multi-GPU tests (2 x gfx950)
-            runner: ${{ inputs.gfx950_2gpu_runner || 'linux-gfx950-8gpu-ccs-ossci-rocm' }}
-            binary: hipblaslt-test
-            artifact_suffix: 2xgfx950
-            hip_visible_devices: "0,1"
-            filter: "*multi_gpu*"
+      matrix: ${{ fromJSON(needs.configure.outputs.test_matrix) }}
     container:
       image: quay.io/almalinuxorg/almalinux@sha256:02d6626076a835e964e0ace5bedfe81e74269d8c11492c86e72612b8be81bdd9
       options: >-
