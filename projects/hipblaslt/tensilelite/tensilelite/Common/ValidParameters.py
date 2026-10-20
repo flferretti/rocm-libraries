@@ -407,33 +407,36 @@ validParameters = { # we need to make sure this matches develop
     #    SIA3: 1LDSBuffer works only when PGR=True
     # TODO: optimize scheduling to support more cases.
     "1LDSBuffer": [-1, 0, 1],
-    # gfx1250 LDS segment interleave: puts an operand's two components in different 64KiB LDS segments
-    # so the two read ports (one per SIMD pair) read different segments, avoiding a segment conflict
-    # (both ports reading one segment at once).
+    # gfx1250 LDS segment interleave reduces conflicts between the two LDS read ports
+    # by placing corresponding components of a split operand in different 64 KiB segments.
+    # A0/A1 (or B0/B1) are data portions; ping/pong are the two buffer copies of each portion.
     #
     # Applies only to gfx1250 wave-separated TDM kernels, and requires:
     #   - TDMInst=3, UnrollMajorLDS, MIWaveGroup [2,2], [4,1], [1,4]
     #   - dtype bf16 / fp16 / fp8 / fp4 (incl. MXFP8/MXFP4 and mixed narrow types such as F8xF4)
     #   - VWA (for [2,2], [4,1]) = WaveTileA or WaveTileA/2; VWB (for [1,4]) = WaveTileB or WaveTileB/2;
     #     the WaveTile/2 case needs TDMSplit
-    # Not applied with 1LDSBuffer=1, LocalSplitU>1, subtile, or sparse.
+    #
+    # Non-TDMSplit uses paired placement: each data group's ping/pong buffers are adjacent.
+    # Paired placement requires:
+    #   - NumLdsBlk=2, 1LDSBuffer=0, PrefetchGlobalRead=1 or 2, ExpandPointerSwap=False
+    # Single-buffer, split-K, subtile, sparse and persistent paths cannot use paired placement.
     #
     # Values:
-    #   -1 = auto: enable only where it needs no extra LDS reserved.
-    #    0 = off (default): baseline layout.
-    #    1 = on: enable wherever valid, including cases that reserve more LDS to reach a segment
-    #            boundary (needs PrefetchGlobalRead=2).
-    # Supported two-buffer PGR2 paths pair each logical group's ping/pong copies,
-    # preserving contiguous operands and separating corresponding component footprints
-    # into disjoint segments within each ping/pong phase.
-    # This placement does not require B read rotation.
+    #    0 = off (default): use ordinary LDS offsets and allocation.
+    #    1 = on: enable valid interleave layouts, allowing extra LDS up to MaxLDS.
+    #            Non-TDMSplit requires valid paired placement, otherwise reject the kernel.
+    #   -1 = auto: for non-TDMSplit, use paired when supported and it needs no more LDS
+    #              than LDSSegmentInterleave=0; otherwise use ordinary offsets and buffer swaps (0).
+    #              For TDMSplit, use non-paired interleave when supported and no extra LDS is needed;
+    #              otherwise use 0. TDMSplit does not pair ping/pong copies.
+    #
     # Recommended: set [0, 1] when tuning to compare baseline vs interleaved.
     "LDSSegmentInterleave": [-1, 0, 1],
-    # LDSSegmentBRotate (gfx1250, needs LDSSegmentInterleave=1 split [2,2] layout): rotate
-    # SIMD pair 1's B reads by half and restore its accumulator halves before the epilogue.
-    # Reuse the same paired layout and per-buffer segment separation as rotation off:
-    # [A0 ping][A0 pong][B0 ping][B0 pong][A1 ping][A1 pong][B1 ping][B1 pong].
-    # B rotation changes read order and accumulator mapping, not physical placement.
+    # LDSSegmentBRotate (gfx1250, needs LDSSegmentInterleave=1 paired [2,2] split layout):
+    # let SIMD pair 1 (odd waves) read its B vIdx groups rotated by half
+    # (v -> (v + nV/2) mod nV) to reduce cross-port LDS segment conflicts.
+    # Pair 1's accumulator halves are swapped back before the epilogue.
     #   0 = off (default), 1 = on.
     "LDSSegmentBRotate": [0, 1],
     # Persistent loop: use the current tile's no-load-loop window to

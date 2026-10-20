@@ -89,7 +89,7 @@ def test_vwb_halfvw_unaligned_uses_bcontig():
 
 def test_bcontig_small_mt_aligned_applies():
     # Small footprint where fA+2fB stays in one segment: bcontig pushes A1 to the next segment
-    # boundary (bcontig-aligned, grows LDS). Needs PGR2 + forced (LDSSI=1); B stays whole/baseline.
+    # boundary (bcontig-aligned, grows LDS). Needs prefetch + forced (LDSSI=1); B stays whole/baseline.
     # DepthU=64 shrinks the footprint; MIWaveTile[1]=7 -> MT1=224, the unreadable odd-B tile.
     r = evaluate(_vw8_state(MIWaveTile=[8, 7], DepthU=64, VectorWidthB=1,
                             PrefetchGlobalRead=2, LDSSegmentInterleave=1))
@@ -105,25 +105,25 @@ def test_bcontig_small_mt_auto_skips():
     r = evaluate(_vw8_state(MIWaveTile=[8, 7], DepthU=64, VectorWidthB=1, PrefetchGlobalRead=2))
     assert r["applicable"] is False and "auto: skip aligned" in r["reason"]
 
-def test_bcontig_small_mt_needs_pgr2():
+def test_bcontig_small_mt_allows_pgr1():
     r = evaluate(_vw8_state(MIWaveTile=[8, 7], DepthU=64, VectorWidthB=1,
                             PrefetchGlobalRead=1, LDSSegmentInterleave=1))
-    assert r["applicable"] is False and "PGR" in r["reason"]
+    assert r["applicable"] is True and r["aligned"] is True
 
 def test_vwa_smaller_than_half_skips():
     # VWA=2 (numVec=4) is smaller than WaveTileA/2 -> TDMSplit's 2-way split can't place it -> reject.
     r = evaluate(_vw8_state(VectorWidthA=2, TDMSplit=1))
     assert r["applicable"] is False and "WaveTileA/2" in r["reason"]
 
-def test_small_mt_skips_without_pgr2():
-    # Small footprint is the aligned candidate, but it requires PGR2 double-buffer; with no
+def test_small_mt_skips_without_prefetch():
+    # Small footprint is the aligned candidate, but it requires double-buffered prefetch; with no
     # PrefetchGlobalRead set it skips to baseline (buffering gate).
     r = evaluate(_vw8_state(DepthU=64))
     assert r["applicable"] is False and "PGR" in r["reason"]
 
-def test_non_square_small_skips_without_pgr2():
+def test_non_square_small_skips_without_prefetch():
     # Non-square: MIWaveTile[1]=4 -> MT1=128 (< MT0=256), VWB=4 <= WaveTileB=4. Coarse VW ok
-    # (16*8=128 >= 256//2), fA+fB < SEG -> small MT; no PGR2 -> buffering gate skip.
+    # (16*8=128 >= 256//2), fA+fB < SEG -> small MT; no prefetch -> buffering gate skip.
     r = evaluate(_vw8_state(MIWaveTile=[8, 4], VectorWidthB=4))
     assert r["applicable"] is False and "PGR" in r["reason"]
 
@@ -162,9 +162,9 @@ def test_aligned_unequal_pad_no_overlap():
     assert r["offsets"]["ldsBaseB"] == 16640         # base + fA, no compensation
     assert _aligned_tiles_disjoint(r, 16640, 16512)
 
-def test_aligned_skips_pgr_not_2():
-    r = evaluate(_vw8_state(DepthU=64, PrefetchGlobalRead=1))
-    assert r["applicable"] is False and "PGR" in r["reason"]
+def test_aligned_allows_pgr1():
+    r = evaluate(_vw8_state(DepthU=64, PrefetchGlobalRead=1, LDSSegmentInterleave=1))
+    assert r["applicable"] is True and r["aligned"] is True
 
 def test_skips_1ldsbuffer():
     # 1LDSBuffer breaks the double-buffered layout the offsets assume. The oracle runs before
@@ -701,7 +701,8 @@ def test_brotate_rejects_b_reach_and_base():
 def test_brotate_rejects_buffering_and_schedule_modes():
     _brot_rejects(_brot_state(NumLdsBlk=1), "2 LDS buffers")
     _brot_rejects(_brot_state(**{"1LDSBuffer": 1}), "2 LDS buffers")
-    _brot_rejects(_brot_state(PrefetchGlobalRead=1), "PrefetchGlobalRead=2")
+    assert b_rotate_reason(_brot_state(PrefetchGlobalRead=1)) is None
+    _brot_rejects(_brot_state(PrefetchGlobalRead=0), "PrefetchGlobalRead=1 or 2")
     _brot_rejects(_brot_state(ExpandPointerSwap=1), "ExpandPointerSwap=0")
 
 def test_brotate_rejects_wave_config():
@@ -959,7 +960,7 @@ def test_paired_scales_follow_both_data_buffers_and_budget_includes_them():
 
 
 @pytest.mark.parametrize("override", [
-    {"NumLdsBlk":3},{"1LDSBuffer":1},{"PrefetchGlobalRead":1},
+    {"NumLdsBlk":3},{"1LDSBuffer":1},{"PrefetchGlobalRead":0},
     {"PrefetchGlobalReadA":2},{"TDMSplit":1},{"ExpandPointerSwap":True},
     {"DirectToLdsB":True},{"NumWaveSplitK":2},{"WavefrontSize":64},
 ])
@@ -972,11 +973,11 @@ def test_paired_emit_gate_excludes_unsupported_buffer_paths(override):
 
 
 @pytest.mark.parametrize("tc", ["A", "B"])
-def test_paired_gate_excludes_mixed_fp4_operands(tc):
+def test_paired_gate_accepts_mixed_fp4_operands(tc):
     from Tensile.SolutionStructs.segment_interleave import paired_buffer_reason
     s=_vw8_state(LDSSegmentInterleave=1,NumLdsBlk=2,PrefetchGlobalRead=2,**{"1LDSBuffer":0})
     s["ProblemType"]["MacDataType"+tc]=_FakeDataType(bf16=False,f4=True,nbytes=0.5)
-    assert "FP4" in paired_buffer_reason(s)
+    assert paired_buffer_reason(s) is None
 
 
 def test_paired_split_aligned_allows_only_cross_phase_tail_sharing():

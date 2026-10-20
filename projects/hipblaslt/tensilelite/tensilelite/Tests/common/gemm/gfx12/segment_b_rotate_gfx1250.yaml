@@ -32,7 +32,7 @@ GlobalParameters:
   DataInitTypeAlpha: 1
   DataInitTypeBeta: 1
   NumWarmups: 0
-  EnqueuesPerSync: 1
+  EnqueuesPerSync: 0
   PrintWinnersOnly: False
   Architecture: gfx1250
   CpuThreads: 1
@@ -68,9 +68,9 @@ BenchmarkProblems:
         - TDMInst: [3]
         - HalfPLR: [0]
         - TDMSplit: [False]
-        - LDSSegmentInterleave: [1]             # aligned [2,2] layout (needs PGR=2)
+        - LDSSegmentInterleave: [1]             # aligned [2,2] layout (PGR1/PGR2)
         - LDSSegmentBRotate: [0, 1]
-        - PrefetchGlobalRead: [2]
+        - PrefetchGlobalRead: [1, 2]
         - TransposeLDS: [-1]
         - LdsPadA: [-1]
         - LdsPadB: [-1]
@@ -135,7 +135,7 @@ BenchmarkProblems:
         - TDMSplit: [False]
         - LDSSegmentInterleave: [1]             # tight [2,2] layout (component stride 64K..128K)
         - LDSSegmentBRotate: [0, 1]
-        - PrefetchGlobalRead: [2]
+        - PrefetchGlobalRead: [1, 2]
         - TransposeLDS: [-1]
         - LdsPadA: [-1]
         - LdsPadB: [-1]
@@ -264,14 +264,14 @@ BenchmarkProblems:
         - ForceDisableShadowInit: [True]
         - MatrixInstruction:
           - [16, 16, 128, 1,  1,  8, 8,  2, 2]  # MT256x256, wave tile 128x128
-        - DepthU: [256]
+        - DepthU: [256, 512]
         - TDMInst: [3]
         - TDMIterateMode: [-1]                  # A pad interval 2048B needs iterate mode
         - HalfPLR: [1]
         - TDMSplit: [False]
-        - LDSSegmentInterleave: [1]             # aligned [2,2] layout (S = 64K)
+        - LDSSegmentInterleave: [1]             # aligned/tight [2,2] layouts for DU256/512
         - LDSSegmentBRotate: [0, 1]
-        - PrefetchGlobalRead: [2]
+        - PrefetchGlobalRead: [1, 2]
         - TransposeLDS: [-1]
         - LdsPadA: [-1]
         - LdsPadB: [-1]
@@ -332,14 +332,14 @@ BenchmarkProblems:
         - ForceDisableShadowInit: [True]
         - MatrixInstruction:
           - [16, 16, 128, 1,  1,  8, 8,  2, 2]  # MT256x256, wave tile 128x128
-        - DepthU: [256]
+        - DepthU: [256, 512]
         - TDMInst: [3]
         - TDMIterateMode: [-1]                  # A pad interval 2048B needs iterate mode
         - HalfPLR: [1]
         - TDMSplit: [False]
-        - LDSSegmentInterleave: [1]             # aligned [2,2] layout (S = 64K)
+        - LDSSegmentInterleave: [1]             # aligned/tight [2,2] layouts for DU256/512
         - LDSSegmentBRotate: [0, 1]
-        - PrefetchGlobalRead: [2]
+        - PrefetchGlobalRead: [1, 2]
         - TransposeLDS: [-1]
         - LdsPadA: [-1]
         - LdsPadB: [-1]

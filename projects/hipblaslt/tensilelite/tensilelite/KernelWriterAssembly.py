@@ -6548,8 +6548,9 @@ class KernelWriterAssembly(KernelWriter):
                            src0=hex(_ldsBase), src1=vgpr("LocalReadAddr%s+0"%tc),
                            comment=" += LdsOffset%s (lower)"%tc))
       if tc == "B" and kernel.get("LDSSegmentBRotate"):
-        # B-rotate: odd waves read B half h from component 1-h. Keep the logical DS
-        # immediates while bridging the physical paired-buffer component stride with the VGPR bases.
+        # B-rotate: SIMD pair 1 (odd wave) reads B half h from component 1-h.
+        # LocalRead uses logical stride R; the paired LDS component stride is S.
+        # Pair p needs +0 = root + p*S and +1 = +0 + S - (R % 64K) - p*2S.
         compStride = _segOff["writeStrideBytes"]
         readStride = _segOff["readStrideBytesB"]
         baseDelta = compStride - readStride % self.states.regCaps["maxLDSConstOffset"]

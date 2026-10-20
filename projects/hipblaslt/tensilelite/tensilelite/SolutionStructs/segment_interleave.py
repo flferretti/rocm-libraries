@@ -13,6 +13,9 @@ different segments keeps the ports apart and avoids the conflict. Baseline inste
 packs each operand's two components adjacently ([A0][A1][B0][B1]); this oracle repacks them, and how
 depends on MIWaveGroup.
 
+The diagrams below describe evaluate()'s logical grouping for one buffer. A0/A1 and B0/B1 are
+data components, not ping/pong buffer numbers.
+
 [2,2] (both operands span two waves): separate A across the two segments so its two read ports read
 different segments; B is repacked to match.
   Without TDMSplit (VWA == WaveTileA only): A's two components go to different segments
@@ -38,7 +41,18 @@ layout.
                       load).
 
 Every layout is either tight (no extra LDS) or aligned (padded to a segment boundary, which uses more
-LDS and needs PrefetchGlobalRead=2).
+LDS and needs double-buffered PGR1/PGR2; aligned TDMSplit needs PGR2).
+
+For non-TDMSplit, paired_buffer_offsets() places each group's ping/pong copies next to each other:
+  split A/B:    [A0 pair][B0 pair][gap if needed][A1 pair][B1 pair]
+  contiguous B: [A0 pair][B pair] [gap if needed][A1 pair]
+  contiguous A: [B0 pair][A pair] [gap if needed][B1 pair]
+Each pair is [ping][pong]. Corresponding component footprints, including padding, occupy disjoint
+segments within each buffer phase: A0 ping versus A1 ping, A0 pong versus A1 pong, likewise for split B.
+Different operands or buffer phases may share segments. LDS-resident MX scale pairs follow the data.
+Solution.py requires a valid paired layout for non-TDMSplit LDSSegmentInterleave=1. Automatic (-1)
+uses paired only when supported and it needs no more LDS than LDSSegmentInterleave=0; otherwise it
+uses ordinary placement. BRotate requires paired in either mode and changes B's read order only.
 """
 
 # gfx1250 LDS segment size (5 x 64 KiB segments).
@@ -226,8 +240,9 @@ def _evaluate_asymmetric(state):
                 "blockSpan": 0, "reason": "bcontig-asym",
                 "segmentMap": "BCONTIG-ASYM active=%s seg%d={c0,shared} seg%d={c1}" % (activeTC, c0, c1)}
 
-    # smaller: pad comp1 to the next segment. grows LDS -> PGR2 + force only.
-    if state.get("PrefetchGlobalRead") != 2:   return _no("bcontig-asym: both components fit one segment, aligned layout (LDS grows) needs PGR=2")
+    # smaller: pad comp1 to the next segment. grows LDS -> PGR1/PGR2 + force only.
+    if state.get("PrefetchGlobalRead") not in (1, 2):
+        return _no("bcontig-asym: aligned layout needs PGR=1 or 2")
     if state.get("LDSSegmentInterleave", -1) == -1: return _no("auto: skip aligned (LDS growth)")
     pre = _ceil_seg(base + strideAct) - base
     offsets = _build_offsets(pre)
@@ -316,8 +331,10 @@ def evaluate(state):
 
         # Small tile: A0+B0+B1 all fit in one segment, so A1 would stay with A0. Pad the A0 -> A1
         # distance up to the next segment boundary so A1 lands in a different segment. Uses more LDS
-        # (checked in Solution.py) and needs PGR=2 -- same idea as the split branch below.
-        if state.get("PrefetchGlobalRead") != 2:   return _no("bcontig: A0+B0+B1 fit one segment, aligned layout (LDS grows) needs PGR=2")
+        # (checked in Solution.py). This requires PGR1/PGR2, or PGR2 for TDMSplit.
+        if (state.get("PrefetchGlobalRead") != 2
+                and (state.get("TDMSplit") or state.get("PrefetchGlobalRead") != 1)):
+            return _no("bcontig: aligned layout needs PGR=2 with TDMSplit, otherwise PGR=1 or 2")
         if mode == -1:                             return _no("auto: skip aligned (LDS growth)")
         pre = _ceil_seg(base + strideA) - base      # round A0 -> A1 distance up to a segment boundary
         offsets = {
@@ -340,8 +357,10 @@ def evaluate(state):
 
     if (base % SEG) + fA + fB < SEG:
         # Small MacroTile: A0,B0 fit one segment, so push component 1 to the next segment boundary
-        # with a segment-aligned stride. Grows LDS (Solution.py budget-checks); PGR2 double-buffer only.
-        if state.get("PrefetchGlobalRead") != 2:        return _no("aligned: A0+B0 fit one segment, aligned layout (LDS grows) needs PGR=2")
+        # with a segment-aligned stride. Grows LDS (Solution.py budget-checks).
+        if (state.get("PrefetchGlobalRead") != 2
+                and (state.get("TDMSplit") or state.get("PrefetchGlobalRead") != 1)):
+            return _no("aligned: needs PGR=2 with TDMSplit, otherwise PGR=1 or 2")
         if mode == -1:                                  return _no("auto: skip aligned (LDS growth)")
         pre = _ceil_seg(base + fA + fB) - base          # segment-aligned stride (== SEG for base<SEG)
         offsets = {
@@ -417,7 +436,7 @@ def b_rotate_reason(state, persistent=False):
         return "needs wave-separated TDM for both operands"
     if state.get("PrefetchGlobalReadA", -1) != -1 or state.get("PrefetchGlobalReadB", -1) != -1:
         return "decoupled PrefetchGlobalReadA/B not supported"
-    if state.get("PrefetchGlobalRead") != 2:                  return "needs PrefetchGlobalRead=2"
+    if state.get("PrefetchGlobalRead") not in (1, 2):          return "needs PrefetchGlobalRead=1 or 2"
     if state.get("ExpandPointerSwap"):                        return "needs ExpandPointerSwap=0"
     vwb, wtb = state["VectorWidthB"], state["MIWaveTile"][1]
     if vwb <= 0 or wtb % vwb != 0 or (wtb // vwb) % 2 != 0:
@@ -452,8 +471,8 @@ def paired_buffer_reason(state, persistent=False):
         return "segment interleave is not active"
     if state.get("NumLdsBlk") != 2 or state.get("1LDSBuffer") != 0:
         return "needs two LDS buffers"
-    if state.get("PrefetchGlobalRead") != 2:
-        return "needs PrefetchGlobalRead=2"
+    if state.get("PrefetchGlobalRead") not in (1, 2):
+        return "needs PrefetchGlobalRead=1 or 2"
     if state.get("WavefrontSize") != 32:
         return "needs wave32"
     if state.get("PrefetchGlobalReadA", -1) != -1 or state.get("PrefetchGlobalReadB", -1) != -1:
@@ -469,10 +488,6 @@ def paired_buffer_reason(state, persistent=False):
             return "%s is not supported" % key
     if state.get("LocalSplitU", 1) != 1 or state.get("NumWaveSplitK", 1) > 1:
         return "split-K LDS layout is not supported"
-    # Sub-byte packing needs separate hardware validation, including mixed formats.
-    pt = state["ProblemType"]
-    if any(pt.get("MacDataType" + tc, pt["DataType"]).isFloat4() for tc in ("A", "B")):
-        return "FP4 pairing has not been validated"
     return None
 
 
@@ -484,6 +499,8 @@ def paired_buffer_offsets(state, isolate_operands=False):
     A contiguous operand retains its original padding phase. Optional operand isolation
     adds segment gaps between every pair; reject it if the complete layout does not
     fit. The caller includes pairedUsedBytes in the normal LDS budget calculation.
+    bufferStride<tensor> is the ping-to-pong distance within a pair;
+    writeStrideBytes is the component-0-to-component-1 distance.
     """
     offsets = dict(state["LDSSegInterleaveOffsets"])
     base = state["LdsOffsetA"]

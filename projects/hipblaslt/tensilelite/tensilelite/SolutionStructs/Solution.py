@@ -6500,29 +6500,36 @@ class Solution(collections.abc.Mapping):
     if state["HalfPLR"]:
       state["ExpandPointerSwap"] = False
 
-    # Pairing is independent of B's read rotation. Resolve it before
-    # LDS occupancy, epilogue reuse and MaxLDS checks; retain the original data
-    # reservation so this change does not silently change occupancy/store policy.
+    # Resolve paired placement before LDS occupancy, epilogue reuse and MaxLDS checks.
+    # Keep at least the ordinary data reservation for occupancy and store policy.
     if state["LDSSegmentBRotate"]:
       _bRotReason = segBRotateReason(state, isPersistent(state))
       if _bRotReason is not None:
         reject(state, printRejectionReason, "LDSSegmentBRotate: %s" % _bRotReason)
         return
-    if state["LDSSegmentBRotate"] or segPairedReason(state, isPersistent(state)) is None:
-      _pairedOffsets = segPairedOffsets(state)
-      _pairedReason = "layout exceeds MaxLDS" if _pairedOffsets is None else segPairedLayoutReason(state, _pairedOffsets)
+    if state["LDSSegmentInterleave"] == 1 and not state["TDMSplit"]:
+      _pairedReason = None if state["LDSSegmentBRotate"] else segPairedReason(state, isPersistent(state))
+      if _pairedReason is None:
+        _pairedOffsets = segPairedOffsets(state)
+        _pairedReason = "layout exceeds MaxLDS" if _pairedOffsets is None else segPairedLayoutReason(state, _pairedOffsets)
       if _pairedReason is None and _segRequested == -1 and _pairedOffsets["pairedUsedBytes"] > ldsNumBytesAB:
-        _pairedReason = "auto: skip pairing that grows LDS"
+        _pairedReason = "paired layout needs more LDS than the ordinary layout"
       if _pairedReason is None:
         state["LDSSegInterleaveOffsets"] = _pairedOffsets
         state["StoreSwapAddr"] = True
         ldsNumBytesAB = max(ldsNumBytesAB, _pairedOffsets["pairedUsedBytes"])
-      elif state["LDSSegmentBRotate"]:
-        # Rotation requires the paired physical layout; never silently fall back.
-        reject(state, printRejectionReason, "LDSSegmentBRotate: %s" % _pairedReason)
+      elif state["LDSSegmentBRotate"] or _segRequested == 1:
+        # Explicit interleave and rotation both require a valid paired layout.
+        _parameter = "LDSSegmentBRotate" if state["LDSSegmentBRotate"] else "LDSSegmentInterleave=1"
+        reject(state, printRejectionReason, "%s requires paired LDS placement: %s" % (_parameter, _pairedReason))
         return
-      elif printRejectionReason:
-        print("LDSSegmentInterleave: paired layout skipped: %s" % _pairedReason)
+      else:
+        # Auto never reserves the aligned interleave layout. The ordinary LDS
+        # offsets, swap policy and byte count above are still intact: commit
+        # paired offsets only on success, otherwise use the ordinary emit path.
+        state["LDSSegmentInterleave"] = 0
+    if state["LDSSegmentInterleave"] == 0 and not state["TDMSplit"]:
+      state["LDSSegInterleaveOffsets"] = {}
 
     # lds size is the greater of the two
     ldsNumBytes = max(ldsNumBytesAB, ldsNumBytesReduction, ldsNumBytesOccupancy)
