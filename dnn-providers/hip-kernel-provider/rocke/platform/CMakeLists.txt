@@ -419,12 +419,34 @@ if(ROCKE_INSTALL_TESTS)
       # directory (which contains the installed rocke package) so `import rocke`
       # resolves without the source-tree sys.path shims. The library tests have
       # their own CTest entry below and must not be collected twice.
+      #
+      # Some pytest files compare the Python engine with a native C++ test
+      # binary named by an environment variable, and skip without it. Point
+      # each variable at its installed binary, as tests/run_all.py does for a
+      # source build (its NATIVE_PARITY_TESTS), so those cases run here too.
+      set(_ROCKE_PYTEST_ENVIRONMENT
+          "PYTHONPATH=."
+          "ROCKE_REPLAY_CLI=${ROCKE_TEST_CTEST_REL}tests/portable_ir/rocke_portable_ir_replay_cli${CMAKE_EXECUTABLE_SUFFIX}")
+      foreach(_rocke_native_parity
+              "ROCKE_STORAGE_TEST=rocke_storage"
+              "ROCKE_IR_TYPES_TEST=rocke_ir_types"
+              "ROCKE_NONTEMPORAL_HIP_TEST=rocke_nontemporal_hip"
+              "ROCKE_ARCH_TARGET_TEST_EXE=rocke_arch_target_identity")
+        string(REPLACE "=" ";" _rocke_native_parity "${_rocke_native_parity}")
+        list(GET _rocke_native_parity 0 _rocke_parity_var)
+        list(GET _rocke_native_parity 1 _rocke_parity_target)
+        if(_rocke_parity_target IN_LIST _ROCKE_INSTALL_TEST_TARGETS)
+          rocke_cxx_test_installed_name(_rocke_installed_name ${_rocke_parity_target})
+          list(APPEND _ROCKE_PYTEST_ENVIRONMENT
+               "${_rocke_parity_var}=${ROCKE_CXX_TEST_CTEST_REL}${_rocke_installed_name}${CMAKE_EXECUTABLE_SUFFIX}")
+        endif()
+      endforeach()
       string(APPEND _ROCKE_INSTALLED_CTEST_ENTRIES
              "add_test(rocke_pytest python -m pytest \"${ROCKE_TEST_CTEST_REL}tests\" --ignore \"${ROCKE_TEST_CTEST_REL}tests/library\" -v -rs --timeout=60)\n")
       string(APPEND _ROCKE_INSTALLED_CTEST_ENTRIES
              "set_tests_properties(rocke_pytest PROPERTIES\n"
              "  LABELS \"ckc\\;python\\;quick\"\n"
-             "  ENVIRONMENT \"PYTHONPATH=.;ROCKE_REPLAY_CLI=${ROCKE_TEST_CTEST_REL}tests/portable_ir/rocke_portable_ir_replay_cli${CMAKE_EXECUTABLE_SUFFIX}\"\n"
+             "  ENVIRONMENT \"${_ROCKE_PYTEST_ENVIRONMENT}\"\n"
              "  TIMEOUT 300)\n")
     endif()
 
