@@ -61,6 +61,7 @@ from .ir import (
     Value,
     VectorType,
     _is_unsigned,
+    _refuse_non_u8_source,
     _refuse_unsigned_operands,
     _sync_attr,
     check_cluster_dims,
@@ -2725,6 +2726,7 @@ class _Lowerer:
         )
 
     def _op_arith_uitofp_f32(self, op: Op) -> None:
+        _refuse_non_u8_source(op)
         (v,) = op.operands
         self._current().emit(
             f"  {op.result.name} = uitofp {_llvm_type(v.type)} {self._operand(v)} to float"
