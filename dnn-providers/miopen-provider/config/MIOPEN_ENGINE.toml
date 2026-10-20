@@ -120,8 +120,8 @@ atol = 0.01
 rtol = 0.02
 
 # dnn-benchmarking conv fp32 workloads. Large-channel 3x3 convs sum thousands of
-# products in an order the CPU reference does not share, so results differ by up
-# to 5.6e-5 at |y|~4 (0.14% of elements), above the default atol=rtol=1e-5
+# products in an order the GPU reference (fprop) does not share, so results differ
+# by up to 4.9e-5 at |y|~4 (0.14% of elements), above the default atol=rtol=1e-5
 # (SDXL_VAE dec_conv_out_3x3_1024 / _1536).
 [[tolerance_overrides]]
 filters = ["dnn_benchmarking_conv_*.*fp32*"]

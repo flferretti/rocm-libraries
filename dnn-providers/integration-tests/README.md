@@ -330,10 +330,10 @@ hand. It runs TheRock's multi-arch build and the `miopenprovider` and
 the `dnn_benchmarking` label (step timeout 180 min). No schedule or pull request
 triggers it, and TheRock never selects the `dnn_benchmarking` type on its own.
 
-hipBLASLt matmul graphs are verified on the CPU (the GPU reference does not cover
-matmul), at about 3 GMAC/s. `HIPBLASLT_ENGINE.toml` therefore skips the 55 shapes
-estimated above 60 s; the largest would take hours. To take newer workloads,
-run `dvc update workloads/*.dvc` and commit the changed pointers.
+hipBLASLt matmul graphs verify on the GPU reference (`GpuMatmulPlan`). On gfx90a
+the 578 `hipblaslt_*` graphs took about 4 minutes. `HIPBLASLT_ENGINE.toml` skips
+one shape whose 7.2e9-element operands the harness cannot fill. To take newer
+workloads, run `dvc update workloads/*.dvc` and commit the changed pointers.
 
 ### Validating golden data itself
 
